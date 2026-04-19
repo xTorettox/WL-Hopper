@@ -16,7 +16,10 @@ class WLHopperBot:
 
     def iniciar(self, usuario, clave):
         self.pw = sync_playwright().start()
-        self.browser = self.pw.chromium.launch(headless=self.headless)
+        self.browser = self.pw.chromium.launch(
+            headless=self.headless,
+            args=["--no-sandbox", "--disable-dev-shm-usage"] 
+        )        
         self.context = self.browser.new_context()
         self.page = self.context.new_page()
         try:
