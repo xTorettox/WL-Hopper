@@ -1,7 +1,4 @@
 streamlit
-playwright
 pandas
-openpyxl
+playwright
 requests
-Pillow
-st-copy-to-clipboard
