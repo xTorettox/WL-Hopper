@@ -48,32 +48,41 @@ st.markdown(f"""
 def check_password():
     """Devuelve True si el usuario ingresó credenciales válidas."""
     def password_entered():
+        # Verificamos contra los secrets de Streamlit
         if st.session_state["username"] in st.secrets["passwords"] and \
-           st.session_state["password"] == st.secrets["password_correct"][st.session_state["username"]]:
+           st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Limpieza de seguridad
+            del st.session_state["password"]  # Borramos la clave por seguridad
         else:
             st.session_state["password_correct"] = False
 
-    # CAMBIO CLAVE: Si no es True (es False o no existe), mostramos el login
+    # Si NO es True (es decir, es False o None), mostramos el login
     if st.session_state.get("password_correct") is not True:
-        # Pantalla de Login
-        c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
-        with c_l2: 
-            st.image("img/WL_Hopper_Logo_-_nspc.png", use_container_width=True)
-            st.markdown("<h3 style='text-align: center;'>Acceso al Sistema</h3>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
+        
+        with c_l2:
+            # El TRY evita que la app muera si el nombre del archivo está mal
+            try:
+                # REVISÁ ESTE NOMBRE: Debe ser idéntico al de tu carpeta img
+                st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
+            except:
+                st.markdown("<h2 style='text-align: center;'>🚀 WL Hopper</h2>", unsafe_allow_html=True)
+            
+            st.markdown("<h4 style='text-align: center;'>Acceso al Sistema</h4>", unsafe_allow_html=True)
+            
             with st.form("login_form"):
                 st.text_input("Usuario", key="username")
                 st.text_input("Contraseña", type="password", key="password")
                 st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
+            
+            # Solo mostramos el error si el usuario ya intentó y falló
+            if st.session_state.get("password_correct") == False:
+                st.error("😕 Usuario o contraseña incorrectos")
         
-        # Mostrar error si las credenciales fallaron
-        if st.session_state.get("password_correct") == False:
-            st.error("😕 Usuario o contraseña incorrectos")
+        return False  # <--- Corta la ejecución aquí, no deja pasar al resto de la app
         
-        return False  # Bloquea el resto de la app
-        
-    return True # Solo llega acá si password_correct es True
+    return True # <--- Solo llega acá si el login fue exitoso
 
 # --- INICIO DE LA APLICACIÓN (Si el login es exitoso) ---
 if check_password():
