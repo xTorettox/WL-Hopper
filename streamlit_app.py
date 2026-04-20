@@ -15,14 +15,7 @@ st.set_page_config(page_title="Sullair Argentina - WL Hopper", page_icon="img/fa
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* Reducir margen superior */
-    .block-container {{ padding-top: 0.5rem !important; padding-bottom: 0rem !important; }}
-    
-    /* Verde Sullair en Botones y Checkboxes */
-    div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; }}
-    [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] p {{ color: {VERDE_SULLAIR}; font-weight: bold; }}
-    [data-testid="stCheckbox"] div[role="checkbox"][aria-checked="true"] {{ background-color: {VERDE_SULLAIR} !important; border-color: {VERDE_SULLAIR} !important; }}
-    
+                
     .terminal-box {{
         background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
         font-size: 13px; padding: 15px; border-radius: 5px; height: 520px; overflow-y: auto; border: 1px solid #444;
