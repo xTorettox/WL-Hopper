@@ -1,6 +1,5 @@
 import os
 import requests
-import subprocess
 import logging
 from playwright.sync_api import sync_playwright
 from datetime import datetime
@@ -18,29 +17,55 @@ class WLHopperBot:
     def iniciar(self, usuario, clave):
         self.pw = sync_playwright().start()
         
-        try:
-            # Intento 1: Lanzamiento estándar
-            self.browser = self.pw.chromium.launch(
-                headless=self.headless,
-                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
-            )
-        except Exception as e:
-            # Intento 2: Si el 1 falla, buscamos el Chromium que instaló el packages.txt
-            # En Streamlit Cloud suele estar en esta ruta:
-            self.browser = self.pw.chromium.launch(
-                executable_path="/usr/bin/chromium", 
-                headless=self.headless,
-                args=["--no-sandbox", "--disable-dev-shm-usage"]
-            )
+        # --- LÓGICA DE DETECCIÓN DE NAVEGADOR PARA CLOUD ---
+        rutas_posibles = [
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/lib/chromium/chromium",
+            "/usr/bin/google-chrome"
+        ]
         
+        self.browser = None
+        for ruta in rutas_posibles:
+            if os.path.exists(ruta):
+                try:
+                    self.browser = self.pw.chromium.launch(
+                        executable_path=ruta,
+                        headless=self.headless,
+                        args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+                    )
+                    break
+                except:
+                    continue
+        
+        # Si no encuentra rutas manuales, intenta el lanzamiento estándar
+        if not self.browser:
+            try:
+                self.browser = self.pw.chromium.launch(
+                    headless=self.headless,
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
+                )
+            except Exception as e:
+                print(f"Error crítico al lanzar navegador: {e}")
+                return False
+            
         self.context = self.browser.new_context()
         self.page = self.context.new_page()
-        # ... resto de tu lógica de login
+        
+        try:
+            self.page.goto("https://certifica.worklift.com.ar/login/", wait_until="load", timeout=60000)
+            self.page.locator('input[type="email"]').fill(usuario)
+            self.page.locator('input[type="password"]').fill(clave)
+            self.page.click('button:has-text("Ingresar")')
+            self.page.wait_for_load_state("networkidle")
+            return True
+        except Exception as e:
+            print(f"Error en Login: {e}")
+            return False
 
-    
     def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe):
         try:
-            # Limpieza y búsqueda
+            # Limpieza y búsqueda del interno
             buscador = self.page.get_by_role("textbox", name="Buscar")
             buscador.click()
             self.page.keyboard.press("Control+A")
@@ -55,7 +80,7 @@ class WLHopperBot:
             for fila in filas:
                 celdas = fila.query_selector_all("td")
                 if len(celdas) < 6: continue
-                # Validación estricta del interno para evitar falsos positivos
+                # Validación estricta: el interno debe estar en la celda correspondiente
                 if interno.upper() in celdas[4].inner_text().strip().upper(): 
                     candidatos.append({
                         "venc": celdas[3].inner_text().strip(),
@@ -73,23 +98,20 @@ class WLHopperBot:
                     "log": ["❌ Interno no encontrado en la tabla."]
                 }
 
-            # Ordenar por fecha de vencimiento (más reciente primero)
+            # Ordenamos: el más reciente primero
             candidatos.sort(key=lambda x: datetime.strptime(x["venc"], "%d/%m/%Y"), reverse=True)
-            
             fila_reciente = candidatos[0]
             log_pasos = [f"✅ Hallado: {interno}", f"📅 Última Insp: {fila_reciente['insp']}"]
             
-            # --- LÓGICA DE AUDITORÍA (Verificar PDF del Certificado) ---
+            # --- AUDITORÍA DE PDFS ---
             mejor_cert = None
             for cand in candidatos:
                 cand["fila_obj"].scroll_into_view_if_needed()
                 cand["menu"].click()
                 self.page.wait_for_selector(".dropdown-menu.show", timeout=2000)
-                
                 links = self.page.query_selector_all(".dropdown-menu.show a")
                 tiene_pdf = any("CERTIFICADO" in l.inner_text().upper() for l in links)
-                
-                self.page.keyboard.press("Escape") # Cerrar menú
+                self.page.keyboard.press("Escape")
                 
                 if tiene_pdf:
                     mejor_cert = cand
@@ -98,10 +120,10 @@ class WLHopperBot:
             vencimiento_real = mejor_cert["venc"] if mejor_cert else fila_reciente["venc"]
             estado_f, _, permitir_f = analizar_fecha(vencimiento_real)
             
-            # Solo descargamos si el más reciente tiene PDF y está vigente
+            # Permitimos descarga solo si el más reciente es el que tiene el PDF
             permitir_descarga_cert = permitir_f and (mejor_cert == fila_reciente)
 
-            # --- DESCARGAS ---
+            # --- PROCESO DE DESCARGA ---
             descargo_cert, descargo_inf = False, False
             existe_inf = False
             
@@ -133,7 +155,6 @@ class WLHopperBot:
 
             self.page.keyboard.press("Escape")
 
-            # Armado de log para terminal
             log_pasos.append(f"📄 Informe: {'Descargado' if descargo_inf else ('No hallado' if not existe_inf else 'Omitido')}")
             log_pasos.append(f"📜 Certificado: {'Descargado' if descargo_cert else 'Omitido o Vencido'}")
 
