@@ -15,8 +15,31 @@ st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/fa
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
+    /* 1. Terminal alineada a la base del botón 'Comenzar' */
+    .terminal-box {{
+        background-color: #212529;
+        color: #f8f9fa;
+        font-family: 'Consolas', monospace;
+        font-size: 13px;
+        padding: 15px;
+        border-radius: 5px;
+        height: 522px; /* Valor ajustado para nivelar bases */
+        overflow-y: auto;
+        border: 1px solid #444;
+    }}
+    
+    /* 2. Forzar alineación de botones de acción */
+    [data-testid="stColumn"] {{
+        display: flex;
+        align-items: flex-end;
+    }}
+    
+    /* Compensar el salto del botón nativo de Streamlit */
+    div.stDownloadButton {{
+        margin-bottom: 2px; 
+    }}
+
     div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
-    .terminal-box {{ background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace; font-size: 13px; padding: 15px; border-radius: 5px; height: 535px; overflow-y: auto; border: 1px solid #444; }}
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
     .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
     </style>
@@ -110,13 +133,13 @@ if btn_run:
             st.session_state.html_excel = html.replace("\n", "")
             st.rerun()
 
-# --- BOTONES DE ACCIÓN (Reemplazo Final) ---
+# --- BOTONES DE ACCIÓN ---
 st.divider()
 dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # Usamos un solo bloque de HTML/JS sin desniveles
+        # Altura de 45px exacta para nivelar con dcol2
         components.html(f"""
             <div style="margin:0; padding:0;">
                 <button id="cBtn" style="
@@ -129,28 +152,23 @@ with dcol1:
                     font-weight: bold; 
                     cursor: pointer; 
                     font-family: sans-serif;
-                    transition: background-color 0.3s;
+                    line-height: 45px;
+                    padding: 0;
                 ">
                     📋 Copiar Reporte para Excel
                 </button>
                 <textarea id="hiddenTable" style="position:fixed; top:-1000px; opacity:0;">{st.session_state.html_excel}</textarea>
             </div>
-            
             <script>
             document.getElementById('cBtn').onclick = function() {{
                 const btn = this;
                 const html = document.getElementById('hiddenTable').value;
-                
-                // Técnica de Blob para mantener formato Excel
                 const blob = new Blob([html], {{ type: 'text/html' }});
                 const data = [new ClipboardItem({{ 'text/html': blob }})];
-                
                 navigator.clipboard.write(data).then(() => {{
-                    // Feedback visual en el botón
                     const originalText = btn.innerHTML;
                     btn.innerHTML = "✅ ¡REPORTE COPIADO!";
-                    btn.style.backgroundColor = "#28a745"; // Verde éxito
-                    
+                    btn.style.backgroundColor = "#28a745";
                     setTimeout(() => {{
                         btn.innerHTML = originalText;
                         btn.style.backgroundColor = "{VERDE_SULLAIR}";
@@ -158,17 +176,23 @@ with dcol1:
                 }});
             }};
             </script>
-        """, height=50) # Altura exacta para nivelar con el download_button
+        """, height=45) 
     else:
+        # Botón deshabilitado nativo de Streamlit
         st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
+    # --- FIX: Definimos z_buf siempre para evitar el error de Pylance ---
     z_buf = BytesIO()
+    
+    # Solo llenamos el buffer si hay archivos reales
     if st.session_state.proceso_completo and st.session_state.hay_archivos:
         with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
             for r, d, files in os.walk("descargas_temp"):
-                for f in files: zf.write(os.path.join(r, f), f)
+                for f in files:
+                    zf.write(os.path.join(r, f), f)
     
+    # El botón ahora siempre tiene una variable válida en 'data'
     st.download_button(
         "📂 Descargar Archivo ZIP", 
         data=z_buf.getvalue(), 
@@ -176,7 +200,7 @@ with dcol2:
         disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
         use_container_width=True
     )
-    
+
 # --- CAPTIONS ---
 st.divider()
 st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
