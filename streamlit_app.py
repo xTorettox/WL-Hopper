@@ -58,7 +58,7 @@ def check_password():
         # Pantalla de Login
         c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
         with c_l2: st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
-        st.write("# Acceso a WL Hopper")
+        st.markdown("<h3 style='text-align: center;'>Acceso al Sistema</h3>", unsafe_allow_html=True)
         with st.form("login_form"):
             st.text_input("Usuario", key="username")
             st.text_input("Contraseña", type="password", key="password")
