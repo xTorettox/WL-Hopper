@@ -42,157 +42,190 @@ if check_password():
     # Botón para cerrar sesión en la sidebar
     st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.clear())
 
-    # --- ESTILOS CSS ---
-    VERDE_SULLAIR = "#008657"
-    st.markdown(f"""
-        <style>
-        .terminal-box {{
-            background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
-            font-size: 13px; padding: 15px; border-radius: 5px; height: 522px; 
-            overflow-y: auto; border: 1px solid #444;
-        }}
-        [data-testid="stColumn"] {{
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-        }}
-        .stButton>button {{
-            background-color: {VERDE_SULLAIR};
-            color: white;
-        }}
-        </style>
+# --- ESTILOS CSS ---
+
+VERDE_SULLAIR = "#008657"
+st.markdown(f"""
+    <style>
+    /* Terminal alineada a la base del botón 'Comenzar' */
+    .terminal-box {{
+        background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
+        font-size: 13px; padding: 15px; border-radius: 5px; height: 522px; 
+        overflow-y: auto; border: 1px solid #444;
+    }}
+    
+    /* Forzar a las columnas a ser contenedores relativos */
+    [data-testid="stColumn"] {{
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+    }}
+
+    /* Estilo para que el botón deshabilitado no flote */
+    .stDownloadButton button {{
+        margin-bottom: 0px !important;
+        height: 45px !important;
+    }}
+
+    div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
+    .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
+    .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
+    </style>
     """, unsafe_allow_html=True)
 
-    # --- ENCABEZADO ---
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        # Intenta cargar el logo si ya creaste la carpeta img
-        try:
-            st.image("img/WL Hopper Logo - nspc.png", width=250)
-        except:
-            st.write("### WL HOPPER")
+# --- INICIALIZACIÓN ---
+if "log_history" not in st.session_state: st.session_state.log_history = []
+if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
+if "html_excel" not in st.session_state: st.session_state.html_excel = ""
+if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
+
+# --- LAYOUT ---
+col_left, col_right = st.columns([1, 1.2], gap="large")
+
+with col_left:
+    st.markdown('<div class="logo-container">', unsafe_allow_html=True)
+    c_l1, c_l2, c_l3 = st.columns([1, 2, 1])
+    with c_l2: st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
+    st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    with st.container(border=True):
+        user = st.text_input("Usuario (Email)", key="user_email")
+        pw = st.text_input("Contraseña", type="password", key="user_pw")
+        c1, c2 = st.columns(2)
+        bajar_cert = c1.checkbox("Certificados", value=True)
+        bajar_inf = c2.checkbox("Informes Técnicos", value=False)
+
+    st.markdown("##### Listado de Internos")
+    texto_internos = st.text_area("Pegá aquí:", height=115, placeholder="E040230, 3797...")
+    btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
+
+with col_right:
+    st.markdown("##### Registro de Actividad")
+    terminal_placeholder = st.empty()
+    def render_terminal():
+        html = f'<div class="terminal-box">'
+        for entry in st.session_state.log_history: html += f'<div class="log-entry">{entry}</div>'
+        html += '</div>'
+        terminal_placeholder.markdown(html, unsafe_allow_html=True)
+    render_terminal()
+
+# --- LÓGICA DE PROCESO ---
+if btn_run:
+    if not user or not pw: st.error("Faltan credenciales.")
+    else:
+        ruta_temp = "descargas_temp"
+        if os.path.exists(ruta_temp): shutil.rmtree(ruta_temp)
+        asegurar_carpeta(ruta_temp)
+
+        st.session_state.proceso_completo = False
+        st.session_state.log_history = ["Iniciando conexión con Worklift..."]
+        render_terminal()
+        
+        bot = WLHopperBot(headless=True)
+        if bot.iniciar(user, pw):
+            st.session_state.log_history.append("🔐 Login exitoso.")
+            render_terminal()
             
-    with col2:
-        st.title("Gestor de Certificados Worklift")
-        st.subheader("Automatización de descargas y validación de vencimientos")
+            lista = extraer_internos(texto_internos)
+            res_lista = []
+            for int_id in lista:
+                st.session_state.log_history.append(f"--- Procesando {int_id} ---")
+                render_terminal()
+                res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf)
+                res['id'] = int_id
+                res_lista.append(res)
+                for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
+                render_terminal()
 
-    # --- ESTADO DE SESIÓN ---
-    if "log_history" not in st.session_state: st.session_state.log_history = []
-    if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
-    if "reporte_excel" not in st.session_state: st.session_state.reporte_excel = ""
-    if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
+            bot.cerrar()
+            st.session_state.log_history.append("🔓 Sesión cerrada correctamente.")
+            st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
+            st.session_state.proceso_completo = True
+            st.session_state.hay_archivos = len(os.listdir(ruta_temp)) > 0 if os.path.exists(ruta_temp) else False
 
-    # --- LAYOUT DE COLUMNAS ---
-    c1, c2 = st.columns([1, 1.5], gap="large")
+            # Generación de HTML
+            html = """<style>table { border-collapse: collapse; } td { white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; } th { white-space: nowrap; text-align: center; padding: 10px 20px; }</style>
+            <table width="100%" border="1" style="font-family: Calibri;">
+            <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>"""
+            for r in res_lista:
+                bg, tx, st_text = "#FFFFFF", "#000000", r['status'].upper()
+                cert_val = "SI" if "VIGENTE" in st_text or "PRÓXIMO" in st_text else "NO"
+                if "VIGENTE" in st_text: bg, tx = "#C6EFCE", "#006100"
+                elif "PRÓXIMO" in st_text: bg, tx = "#FFEB9C", "#9C5700"
+                elif "VENCIDO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
+                html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
+                html += f'<td>{r["insp"]}</td><td>{r["venc"]}</td><td>{cert_val}</td><td>{r["inf"]}</td>'
+                html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r["det"]}</td></tr>'
+            html += "</table>"
+            st.session_state.html_excel = html.replace("\n", "")
+            st.rerun()
 
-    with c1:
-        st.info("📌 Paso 1: Configurar credenciales")
-        user = st.text_input("Usuario Worklift", value="", placeholder="ejemplo@sullair.com.ar")
-        pw = st.text_input("Contraseña", type="password")
-        
-        st.divider()
-        st.info("⚙️ Paso 2: Listado de Internos")
-        # ACÁ ESTÁ TU VENTANITA DE SIEMPRE PARA PEGAR TEXTO
-        texto_sucio = st.text_area("Pegá acá el texto del mail o la lista:", height=150, placeholder="E040230, 3797...")
-        
-        c_cert, c_inf = st.columns(2)
-        b_cert = c_cert.checkbox("Descargar Certificados", value=True)
-        b_inf = c_inf.checkbox("Descargar Informes", value=False)
-        
-        if st.button("🚀 COMENZAR PROCESO", use_container_width=True):
-            if not user or not pw or not texto_sucio:
-                st.error("Faltan datos obligatorios (Usuario, Clave o Internos).")
-            else:
-                asegurar_carpeta("descargas_temp")
-                internos = extraer_internos(texto_sucio)
-                
-                if not internos:
-                    st.warning("No se detectaron números de internos válidos.")
-                else:
-                    st.session_state.log_history = [f"🔍 Detectados {len(internos)} internos."]
-                    bot = WLHopperBot(headless=True)
-                    
-                    if bot.iniciar(user, pw):
-                        st.session_state.log_history.append("✅ Login exitoso en Worklift.")
-                        resultados = []
-                        
-                        progress_bar = st.progress(0)
-                        for i, interno in enumerate(internos):
-                            st.session_state.log_history.append(f"⚙️ Procesando: {interno}...")
-                            res = bot.procesar_interno(interno, "descargas_temp", b_cert, b_inf)
-                            st.session_state.log_history += res["log"]
-                            
-                            resultados.append({
-                                "Interno": interno,
-                                "Vencimiento": res["venc"],
-                                "Inspección": res["insp"],
-                                "Certificado": res["cert"],
-                                "Informe": res["inf"],
-                                "Estado": res["status"],
-                                "Detalle": res["det"]
-                            })
-                            progress_bar.progress((i + 1) / len(internos))
-                        
-                        bot.cerrar()
-                        
-                        # Generar Reporte para copiar
-                        df = pd.DataFrame(resultados)
-                        st.session_state.reporte_excel = df.to_csv(index=False, sep='\t')
-                        st.session_state.proceso_completo = True
-                        st.session_state.hay_archivos = any(res["cert"] == "SI" or res["inf"] == "SI" for res in resultados)
-                        st.session_state.log_history.append("🏁 ¡PROCESO FINALIZADO!")
-                    else:
-                        st.session_state.log_history.append("❌ Error de Login en Worklift.")
+# --- BOTONES DE ACCIÓN ---
+st.divider()
+dcol1, dcol2 = st.columns(2)
 
-    with c2:
-        st.write("📟 Consola de Proceso")
-        log_content = "\n".join(st.session_state.log_history)
-        st.markdown(f'<div class="terminal-box"><pre>{log_content}</pre></div>', unsafe_allow_html=True)
-        
-        st.divider()
-        dcol1, dcol2 = st.columns(2)
-        
-        with dcol1:
-            if st.session_state.proceso_completo:
-                reporte_js = st.session_state.reporte_excel.replace("'", "\\'").replace("\n", "\\n")
-                components.html(f"""
-                    <button id="copyBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
-                        📋 Copiar Reporte para Excel
-                    </button>
-                    <script>
-                    const btn = document.getElementById('copyBtn');
-                    btn.onclick = () => {{
-                        const data = [new ClipboardItem({{ "text/plain": new Blob(['{reporte_js}'], {{ type: "text/plain" }}) }})];
-                        navigator.clipboard.write(data).then(() => {{
-                            btn.innerHTML = "✅ ¡REPORTE COPIADO!";
-                            btn.style.backgroundColor = "#28a745";
-                            setTimeout(() => {{
-                                btn.innerHTML = "📋 Copiar Reporte para Excel";
-                                btn.style.backgroundColor = "{VERDE_SULLAIR}";
-                            }}, 2000);
-                        }});
-                    }};
-                    </script>
-                """, height=45) 
-            else:
-                st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
+with dcol1:
+    if st.session_state.proceso_completo:
+        # Usamos un div con padding:0 para que el iframe se pegue al piso
+        components.html(f"""
+            <div style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
+                <button id="cBtn" style="
+                    width: 100%; 
+                    height: 45px; 
+                    background-color: {VERDE_SULLAIR}; 
+                    color: white; 
+                    border: none; 
+                    border-radius: 4px; 
+                    font-weight: bold; 
+                    cursor: pointer; 
+                    font-family: sans-serif;
+                    box-sizing: border-box;
+                ">
+                    📋 Copiar Reporte para Excel
+                </button>
+                <textarea id="hiddenTable" style="position:fixed; top:-1000px; opacity:0;">{st.session_state.html_excel}</textarea>
+            </div>
+            <script>
+            document.getElementById('cBtn').onclick = function() {{
+                const btn = this;
+                const html = document.getElementById('hiddenTable').value;
+                const blob = new Blob([html], {{ type: 'text/html' }});
+                const data = [new ClipboardItem({{ 'text/html': blob }})];
+                navigator.clipboard.write(data).then(() => {{
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = "✅ ¡REPORTE COPIADO!";
+                    btn.style.backgroundColor = "#28a745";
+                    setTimeout(() => {{
+                        btn.innerHTML = originalText;
+                        btn.style.backgroundColor = "{VERDE_SULLAIR}";
+                    }}, 2000);
+                }});
+            }};
+            </script>
+        """, height=45) 
+    else:
+        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True, key="btn_copy_off")
 
-        with dcol2:
-            z_buf = BytesIO()
-            if st.session_state.proceso_completo and st.session_state.hay_archivos:
-                with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
-                    for r, d, files in os.walk("descargas_temp"):
-                        for f in files: zf.write(os.path.join(r, f), f)
-            
-            st.download_button(
-                "📂 Descargar Archivo ZIP", 
-                data=z_buf.getvalue(), 
-                file_name="certificados.zip", 
-                disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos),
-                use_container_width=True
-            )
+with dcol2:
+    # Definimos z_buf siempre para que Pylance no llore
+    z_buf = BytesIO()
+    if st.session_state.proceso_completo and st.session_state.hay_archivos:
+        with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
+            for r, d, files in os.walk("descargas_temp"):
+                for f in files: zf.write(os.path.join(r, f), f)
+    
+    st.download_button(
+        "📂 Descargar Archivo ZIP", 
+        data=z_buf.getvalue(), 
+        file_name="certificados.zip", 
+        disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
+        use_container_width=True,
+        key="btn_zip"
+    )
 
-    st.divider()
-    st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
-    st.caption("Consultas: fcendra@sullair.com.ar")
+# --- CAPTIONS ---
+st.divider()
+st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
+st.caption("Consultas a: fcendra@sullair.com.ar")
