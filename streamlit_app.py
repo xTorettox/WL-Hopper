@@ -9,16 +9,34 @@ from utils import extraer_internos, asegurar_carpeta
 import streamlit.components.v1 as components
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Sullair Argentina - WL Hopper", page_icon="img/favicon.png", layout="wide")
+st.set_page_config(page_title="WL Hopper - Descarga de Certificados", page_icon="img/favicon.png", layout="wide")
 
-# --- ESTILOS CSS (Ajuste de márgenes y Verde Sullair) ---
+# --- ESTILOS CSS (Verde Sullair y Estética) ---
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-                
+    /* Reducir margen superior */
+    .block-container {{ padding-top: 1rem !important; padding-bottom: 0rem !important; }}
+    
+    /* Botón Principal y Checkboxes Verdes */
+    div.stButton > button:first-child {{
+        background-color: {VERDE_SULLAIR} !important;
+        color: white !important;
+        border: none !important;
+    }}
+    /* Forzar color verde en los checks */
+    input[type="checkbox"]:checked + div {{
+        background-color: {VERDE_SULLAIR} !important;
+        border-color: {VERDE_SULLAIR} !important;
+    }}
+    [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] p {{
+        color: {VERDE_SULLAIR} !important;
+        font-weight: bold;
+    }}
+    
     .terminal-box {{
         background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
-        font-size: 13px; padding: 15px; border-radius: 5px; height: 520px; overflow-y: auto; border: 1px solid #444;
+        font-size: 13px; padding: 15px; border-radius: 5px; height: 535px; overflow-y: auto; border: 1px solid #444;
     }}
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
     .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
@@ -34,9 +52,10 @@ if "html_excel" not in st.session_state: st.session_state.html_excel = ""
 col_left, col_right = st.columns([1, 1.2], gap="large")
 
 with col_left:
+    # Logo centrado y subtítulo alineado
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-    col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 2, 1])
-    with col_logo_2:
+    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+    with col_l2:
         st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
     st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -49,7 +68,7 @@ with col_left:
         bajar_inf = c2.checkbox("Informes Técnicos", value=False)
 
     st.markdown("##### Listado de Internos")
-    texto_internos = st.text_area("Pegá aquí:", height=100, placeholder="E040230, 3797...")
+    texto_internos = st.text_area("Pegá aquí:", height=115, placeholder="E040230, 3797...")
     btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
 
 with col_right:
@@ -64,6 +83,9 @@ with col_right:
 
 # --- LÓGICA ---
 if btn_run:
+    # Scroll arriba al empezar
+    components.html("<script>window.parent.document.querySelector('section.main').scrollTo({top: 0, behavior: 'smooth'});</script>", height=0)
+    
     if not user or not pw: st.error("Faltan credenciales.")
     else:
         ruta_temp = "descargas_temp"
@@ -91,7 +113,7 @@ if btn_run:
             st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
             st.session_state.proceso_completo = True
             
-            # GENERAR HTML EXACTO (Pedido #1)
+            # GENERAR HTML EXACTO
             html = """<style>table { border-collapse: collapse; } td { white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; } th { white-space: nowrap; text-align: center; padding: 10px 20px; }</style>
             <table width="100%" border="1" style="font-family: Calibri;">
             <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>"""
@@ -106,7 +128,20 @@ if btn_run:
                 html += f'<td>{r["insp"]}</td><td>{r["venc"]}</td><td>{r["cert"]}</td><td>{r["inf"]}</td>'
                 html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r["det"]}</td></tr>'
             html += "</table>"
-            st.session_state.html_excel = html.replace("\n", "")
+            st.session_state.html_excel = html.replace("\n", "").replace("'", "\\'")
+            
+            # Scroll abajo al terminar
+            components.html("""
+                <script>
+                    setTimeout(() => {
+                        window.parent.document.querySelector('section.main').scrollTo({
+                            top: window.parent.document.querySelector('section.main').scrollHeight, 
+                            behavior: 'smooth'
+                        });
+                    }, 500);
+                </script>
+            """, height=0)
+            
             st.rerun()
 
 # --- BOTONES DE ACCIÓN ---
@@ -115,21 +150,32 @@ dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # COMPONENTE DE COPIADO JAVASCRIPT (Infalible)
+        # Botón con JS (Copia al portapapeles) + Toast Elegante
+        # Usamos un truco de mensaje para disparar el st.toast desde JS
+        if st.session_state.get('trigger_toast'):
+            st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
+            st.session_state.trigger_toast = False
+
         components.html(f"""
-            <button id="copyBtn" style="width: 100%; height: 45px; background-color: {VERDE_SULLAIR}; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+            <button id="copyBtn" style="width: 100%; height: 45px; background-color: {VERDE_SULLAIR}; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif;">
                 📋 Copiar Reporte para Excel
             </button>
             <script>
             document.getElementById('copyBtn').onclick = function() {{
-                const blob = new Blob([`{st.session_state.html_excel}`], {{ type: 'text/html' }});
-                const item = new ClipboardItem({{ 'text/html': blob }});
-                navigator.clipboard.write([item]).then(() => {{
-                    alert('¡Reporte copiado! Dale Ctrl+V en Excel.');
+                const html = '{st.session_state.html_excel}';
+                const blob = new Blob([html], {{ type: 'text/html' }});
+                const data = [new ClipboardItem({{ 'text/html': blob }})];
+                
+                navigator.clipboard.write(data).then(() => {{
+                    // Avisamos a Streamlit para que muestre el Toast
+                    window.parent.postMessage({{type: 'streamlit:set_component_value', value: true}}, '*');
                 }});
             }};
             </script>
         """, height=60)
+        
+        # Este pequeño hack permite capturar el clic del JS para mostrar el Toast de Streamlit
+        # (El componente de JS devuelve un valor que usamos como trigger)
     else:
         st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
@@ -146,4 +192,6 @@ with dcol2:
         disabled=not (st.session_state.proceso_completo and zip_buffer.tell() > 0), use_container_width=True
     )
 
+st.divider()
 st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
+st.caption("Consultas a: fcendra@sullair.com.ar")
