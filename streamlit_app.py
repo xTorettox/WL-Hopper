@@ -7,6 +7,7 @@ from io import BytesIO
 from scraper import WLHopperBot
 from utils import extraer_internos, asegurar_carpeta
 import streamlit.components.v1 as components
+import time
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
@@ -27,6 +28,7 @@ if "log_history" not in st.session_state: st.session_state.log_history = []
 if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
 if "html_excel" not in st.session_state: st.session_state.html_excel = ""
 if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
+if "copy_trigger" not in st.session_state: st.session_state.copy_trigger = 0
 
 # --- LAYOUT ---
 col_left, col_right = st.columns([1, 1.2], gap="large")
@@ -61,9 +63,6 @@ with col_right:
 
 # --- LÓGICA DE PROCESO ---
 if btn_run:
-    # Scroll arriba al comenzar
-    components.html("<script>window.parent.scrollTo({top: 0, behavior: 'smooth'});</script>", height=0)
-    
     if not user or not pw: st.error("Faltan credenciales.")
     else:
         ruta_temp = "descargas_temp"
@@ -71,7 +70,7 @@ if btn_run:
         asegurar_carpeta(ruta_temp)
 
         st.session_state.proceso_completo = False
-        st.session_state.log_history = ["Iniciando conexión con Worklift..."] # Removido aviso de carpeta limpia
+        st.session_state.log_history = ["Iniciando conexión con Worklift..."]
         render_terminal()
         
         bot = WLHopperBot(headless=True)
@@ -107,9 +106,6 @@ if btn_run:
                 html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r["det"]}</td></tr>'
             html += "</table>"
             st.session_state.html_excel = html.replace("\n", "").replace("'", "\\'")
-            
-            # Scroll abajo al finalizar
-            components.html("<script>setTimeout(() => { window.parent.scrollTo({top: 1500, behavior: 'smooth'}); }, 500);</script>", height=0)
             st.rerun()
 
 # --- BOTONES DE ACCIÓN ---
@@ -118,9 +114,9 @@ dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # BOTÓN DE COPIA: Detecta el mensaje del JS para disparar el Toast de forma limpia
-        if components.html(f"""
-            <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">📋 Copiar Reporte para Excel</button>
+        # BOTÓN DE COPIA CON TRIGGER DE SESIÓN
+        val = components.html(f"""
+            <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">📋 Copiar Reporte para Excel</button>
             <script>
             document.getElementById('cBtn').onclick = function() {{
                 const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
@@ -130,14 +126,16 @@ with dcol1:
                 }});
             }};
             </script>
-        """, height=50):
-             st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
+        """, height=50)
+
+        # Si el valor de val cambia (porque hicimos clic), disparamos el toast
+        if val:
+            st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
     else:
         st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
     z_buf = BytesIO()
-    # Solo intentamos crear el ZIP si el proceso terminó y efectivamente hay archivos
     if st.session_state.proceso_completo and st.session_state.hay_archivos:
         with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
             for r, d, files in os.walk("descargas_temp"):
@@ -146,7 +144,7 @@ with dcol2:
     st.download_button("📂 Descargar Archivo ZIP", data=z_buf.getvalue(), file_name="certificados.zip", 
                        disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), use_container_width=True)
 
-# --- CAPTIONS FINALES ---
+# --- CAPTIONS ---
 st.divider()
 st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
 st.caption("Consultas a: fcendra@sullair.com.ar")
