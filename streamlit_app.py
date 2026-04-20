@@ -110,29 +110,55 @@ if btn_run:
             st.session_state.html_excel = html.replace("\n", "")
             st.rerun()
 
-# --- BOTONES DE ACCIÓN ---
+# --- BOTONES DE ACCIÓN (Reemplazo Final) ---
 st.divider()
 dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # Usamos un componente que detecta el clic para el toast
-        # y el JS para el copiado real (que es lo único que mantiene el formato)
-        if components.html(f"""
-            <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">📋 Copiar Reporte para Excel</button>
+        # Usamos un solo bloque de HTML/JS sin desniveles
+        components.html(f"""
+            <div style="margin:0; padding:0;">
+                <button id="cBtn" style="
+                    width: 100%; 
+                    height: 45px; 
+                    background-color: {VERDE_SULLAIR}; 
+                    color: white; 
+                    border: none; 
+                    border-radius: 4px; 
+                    font-weight: bold; 
+                    cursor: pointer; 
+                    font-family: sans-serif;
+                    transition: background-color 0.3s;
+                ">
+                    📋 Copiar Reporte para Excel
+                </button>
+                <textarea id="hiddenTable" style="position:fixed; top:-1000px; opacity:0;">{st.session_state.html_excel}</textarea>
+            </div>
+            
             <script>
             document.getElementById('cBtn').onclick = function() {{
-                const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
-                const item = new ClipboardItem({{ 'text/html': blob }});
-                navigator.clipboard.write([item]).then(() => {{
-                    // Avisamos a Streamlit que el copiado fue exitoso
-                    window.parent.postMessage({{type: 'streamlit:set_component_value', value: 'copiado'}}, '*');
+                const btn = this;
+                const html = document.getElementById('hiddenTable').value;
+                
+                // Técnica de Blob para mantener formato Excel
+                const blob = new Blob([html], {{ type: 'text/html' }});
+                const data = [new ClipboardItem({{ 'text/html': blob }})];
+                
+                navigator.clipboard.write(data).then(() => {{
+                    // Feedback visual en el botón
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = "✅ ¡REPORTE COPIADO!";
+                    btn.style.backgroundColor = "#28a745"; // Verde éxito
+                    
+                    setTimeout(() => {{
+                        btn.innerHTML = originalText;
+                        btn.style.backgroundColor = "{VERDE_SULLAIR}";
+                    }}, 2000);
                 }});
             }};
             </script>
-        """, height=50):
-            # Si el componente devuelve algo (clic), tiramos el toast elegante
-            st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
+        """, height=50) # Altura exacta para nivelar con el download_button
     else:
         st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
@@ -143,9 +169,14 @@ with dcol2:
             for r, d, files in os.walk("descargas_temp"):
                 for f in files: zf.write(os.path.join(r, f), f)
     
-    st.download_button("📂 Descargar Archivo ZIP", data=z_buf.getvalue(), file_name="certificados.zip", 
-                       disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), use_container_width=True)
-
+    st.download_button(
+        "📂 Descargar Archivo ZIP", 
+        data=z_buf.getvalue(), 
+        file_name="certificados.zip", 
+        disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
+        use_container_width=True
+    )
+    
 # --- CAPTIONS ---
 st.divider()
 st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
