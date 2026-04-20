@@ -42,7 +42,9 @@ col_left, col_right = st.columns([1, 1.2], gap="large")
 
 with col_left:
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-    st.image("img/WL Hopper Logo - nspc.png", width=350, style='align: center;')
+    col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 2, 1])
+    with col_logo_2:
+        st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
     st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
