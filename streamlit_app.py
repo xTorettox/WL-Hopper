@@ -16,8 +16,31 @@ st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/fa
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
-    .terminal-box {{ background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace; font-size: 13px; padding: 15px; border-radius: 5px; height: 535px; overflow-y: auto; border: 1px solid #444; }}
+    /* Forzamos a que las columnas alineen su contenido al fondo */
+    [data-testid="stColumn"] {{
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+    }}
+
+    div.stButton > button:first-child {{ 
+        background-color: {VERDE_SULLAIR} !important; 
+        color: white !important; 
+        font-weight: bold; 
+    }}
+
+    .terminal-box {{ 
+        background-color: #212529; 
+        color: #f8f9fa; 
+        font-family: 'Consolas', monospace; 
+        font-size: 13px; 
+        padding: 15px; 
+        border-radius: 5px; 
+        height: 535px; /* Mantiene su tamaño */
+        overflow-y: auto; 
+        border: 1px solid #444; 
+    }}
+
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
     .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
     </style>
