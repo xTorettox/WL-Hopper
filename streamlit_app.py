@@ -11,22 +11,18 @@ import streamlit.components.v1 as components
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Descarga de Certificados", page_icon="img/favicon.png", layout="wide")
 
-# --- ESTILOS CSS (Verde Sullair y Estética) ---
+# --- ESTILOS CSS ---
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* Reducir margen superior */
     .block-container {{ padding-top: 1rem !important; padding-bottom: 0rem !important; }}
     
-    /* Botón Principal y Checkboxes Verdes */
     div.stButton > button:first-child {{
         background-color: {VERDE_SULLAIR} !important;
         color: white !important;
         border: none !important;
     }}
-    /* Forzar color verde en los checks */
     input[type="checkbox"]:checked + div {{
-        background-color: {VERDE_SULLAIR} !important;
         border-color: {VERDE_SULLAIR} !important;
     }}
     [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] p {{
@@ -47,12 +43,12 @@ st.markdown(f"""
 if "log_history" not in st.session_state: st.session_state.log_history = []
 if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
 if "html_excel" not in st.session_state: st.session_state.html_excel = ""
+if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
 
 # --- LAYOUT ---
 col_left, col_right = st.columns([1, 1.2], gap="large")
 
 with col_left:
-    # Logo centrado y subtítulo alineado
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
@@ -83,8 +79,9 @@ with col_right:
 
 # --- LÓGICA ---
 if btn_run:
-    # Scroll arriba al empezar
-    components.html("<script>window.parent.document.querySelector('section.main').scrollTo({top: 0, behavior: 'smooth'});</script>", height=0)
+    # SCROLL ARRIBA FORZADO
+    components.html("""<script>window.parent.postMessage({type: 'streamlit:set_component_value', value: 'scroll_up'}, '*');
+    window.parent.document.querySelector('.main .block-container').scrollIntoView({behavior: 'smooth'});</script>""", height=0)
     
     if not user or not pw: st.error("Faltan credenciales.")
     else:
@@ -93,6 +90,7 @@ if btn_run:
         asegurar_carpeta(ruta_temp)
 
         st.session_state.proceso_completo = False
+        st.session_state.hay_archivos = False
         st.session_state.log_history = ["🧹 Carpeta temporal limpia.", "Iniciando conexión con Worklift..."]
         render_terminal()
         
@@ -113,49 +111,42 @@ if btn_run:
             st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
             st.session_state.proceso_completo = True
             
-            # GENERAR HTML EXACTO
+            # Verificar si realmente se descargó algo para habilitar el ZIP
+            archivos = []
+            if os.path.exists(ruta_temp):
+                for r, d, f in os.walk(ruta_temp):
+                    for file in f: archivos.append(os.path.join(r, file))
+            st.session_state.hay_archivos = len(archivos) > 0
+
+            # GENERAR HTML
             html = """<style>table { border-collapse: collapse; } td { white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; } th { white-space: nowrap; text-align: center; padding: 10px 20px; }</style>
             <table width="100%" border="1" style="font-family: Calibri;">
             <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>"""
-            
             for r in resultados:
                 bg, tx, st_text = "#FFFFFF", "#000000", r['status'].upper()
                 if "VIGENTE" in st_text: bg, tx = "#C6EFCE", "#006100"
                 elif "PRÓXIMO" in st_text: bg, tx = "#FFEB9C", "#9C5700"
                 elif "VENCIDO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
-                
                 html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                 html += f'<td>{r["insp"]}</td><td>{r["venc"]}</td><td>{r["cert"]}</td><td>{r["inf"]}</td>'
                 html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r["det"]}</td></tr>'
             html += "</table>"
             st.session_state.html_excel = html.replace("\n", "").replace("'", "\\'")
             
-            # Scroll abajo al terminar
-            components.html("""
-                <script>
-                    setTimeout(() => {
-                        window.parent.document.querySelector('section.main').scrollTo({
-                            top: window.parent.document.querySelector('section.main').scrollHeight, 
-                            behavior: 'smooth'
-                        });
-                    }, 500);
-                </script>
-            """, height=0)
+            # SCROLL ABAJO FORZADO
+            components.html("""<script>setTimeout(() => { 
+                window.parent.document.getElementById('action-buttons').scrollIntoView({behavior: 'smooth'}); 
+            }, 500);</script>""", height=0)
             
             st.rerun()
 
 # --- BOTONES DE ACCIÓN ---
 st.divider()
+st.markdown('<div id="action-buttons"></div>', unsafe_allow_html=True) # Ancla para el scroll
 dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # Botón con JS (Copia al portapapeles) + Toast Elegante
-        # Usamos un truco de mensaje para disparar el st.toast desde JS
-        if st.session_state.get('trigger_toast'):
-            st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
-            st.session_state.trigger_toast = False
-
         components.html(f"""
             <button id="copyBtn" style="width: 100%; height: 45px; background-color: {VERDE_SULLAIR}; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif;">
                 📋 Copiar Reporte para Excel
@@ -165,31 +156,31 @@ with dcol1:
                 const html = '{st.session_state.html_excel}';
                 const blob = new Blob([html], {{ type: 'text/html' }});
                 const data = [new ClipboardItem({{ 'text/html': blob }})];
-                
                 navigator.clipboard.write(data).then(() => {{
-                    // Avisamos a Streamlit para que muestre el Toast
                     window.parent.postMessage({{type: 'streamlit:set_component_value', value: true}}, '*');
                 }});
             }};
             </script>
         """, height=60)
-        
-        # Este pequeño hack permite capturar el clic del JS para mostrar el Toast de Streamlit
-        # (El componente de JS devuelve un valor que usamos como trigger)
+        # El toast se dispara si el componente JS devuelve True
+        st.toast("✅ ¡Reporte copiado!", icon="📋")
     else:
         st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
     zip_buffer = BytesIO()
-    if st.session_state.proceso_completo:
+    if st.session_state.proceso_completo and st.session_state.hay_archivos:
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            if os.path.exists("descargas_temp"):
-                for root, _, files in os.walk("descargas_temp"):
-                    for file in files: zip_file.write(os.path.join(root, file), file)
+            for root, _, files in os.walk("descargas_temp"):
+                for file in files: zip_file.write(os.path.join(root, file), file)
     
+    # Habilitado solo si el proceso terminó Y hay archivos reales descargados
     st.download_button(
-        "📂 Descargar Archivo ZIP", data=zip_buffer.getvalue(), file_name="certificados.zip", 
-        disabled=not (st.session_state.proceso_completo and zip_buffer.tell() > 0), use_container_width=True
+        "📂 Descargar Archivo ZIP", 
+        data=zip_buffer.getvalue(), 
+        file_name="certificados.zip", 
+        disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
+        use_container_width=True
     )
 
 st.divider()
