@@ -6,72 +6,50 @@ import zipfile
 from io import BytesIO
 from scraper import WLHopperBot
 from utils import extraer_internos, asegurar_carpeta
-import streamlit.components.v1 as components
+from st_copy_to_clipboard import st_copy_to_clipboard
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Sullair Argentina - WL Hopper", page_icon="img/favicon.png", layout="wide")
 
 # --- ESTILO CSS (Verde Sullair y Terminal) ---
-st.markdown("""
+VERDE_SULLAIR = "#008657"
+st.markdown(f"""
     <style>
-    /* Color Verde Sullair para botones y checkboxes */
-    div.stButton > button:first-child {
-        background-color: #008657 !important;
+    /* Botón Principal y Checkboxes */
+    div.stButton > button:first-child {{
+        background-color: {VERDE_SULLAIR} !important;
         color: white !important;
-        border: none !important;
-    }
-    div[data-testid="stCheckbox"] > label > div[data-testid="stWidgetLabel"] {
-        color: #008657 !important;
-    }
-    
-    .terminal-box {
+    }}
+    /* Forzar color verde en los checks */
+    input[type="checkbox"]:checked + div {{
+        background-color: {VERDE_SULLAIR} !important;
+        border-color: {VERDE_SULLAIR} !important;
+    }}
+    .terminal-box {{
         background-color: #212529;
         color: #f8f9fa;
         font-family: 'Consolas', monospace;
         font-size: 13px;
         padding: 15px;
         border-radius: 5px;
-        height: 540px; /* Ajustado para que termine a la altura del botón */
+        height: 525px; 
         overflow-y: auto;
         border: 1px solid #444;
-    }
-    .log-entry { margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }
-    
-    /* Centrado de logo */
-    .logo-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        flex-direction: column;
-        margin-bottom: 20px;
-    }
+    }}
+    .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
+    .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 20px; }}
     </style>
     """, unsafe_allow_html=True)
-
-# --- FUNCIÓN PARA COPIAR (JS) ---
-def st_copy_to_clipboard(text):
-    # Solución al AttributeError: Usamos JS para copiar
-    components.html(f"""
-        <script>
-        const text = `{text}`;
-        navigator.clipboard.writeText(text).then(() => {{
-            window.parent.postMessage({{type: 'copy_success'}}, '*');
-        }});
-        </script>
-    """, height=0)
-    st.toast("¡Reporte copiado! Dale Ctrl+V en Excel.")
 
 # --- INICIALIZACIÓN ---
 if "log_history" not in st.session_state: st.session_state.log_history = []
 if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
-if "resultados" not in st.session_state: st.session_state.resultados = []
 if "html_reporte" not in st.session_state: st.session_state.html_reporte = ""
 
 # --- LAYOUT ---
 col_left, col_right = st.columns([1, 1.2], gap="large")
 
 with col_left:
-    # Logo centrado con subtítulo (Pedido #1)
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
     st.image("img/WL Hopper Logo - nspc.png", width=350)
     st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
@@ -94,7 +72,7 @@ with col_right:
     terminal_placeholder = st.empty()
     
     def render_terminal():
-        html = '<div class="terminal-box">'
+        html = f'<div class="terminal-box">'
         for entry in st.session_state.log_history:
             html += f'<div class="log-entry">{entry}</div>'
         html += '</div>'
@@ -122,14 +100,14 @@ if btn_run:
             render_terminal()
             
             lista = extraer_internos(texto_internos)
-            st.session_state.resultados = []
+            resultados = []
             
             for int_id in lista:
                 st.session_state.log_history.append(f"--- Procesando {int_id} ---")
                 render_terminal()
                 res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf)
                 res['id'] = int_id
-                st.session_state.resultados.append(res)
+                resultados.append(res)
                 for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
                 render_terminal()
 
@@ -137,26 +115,30 @@ if btn_run:
             st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
             st.session_state.proceso_completo = True
             
-            # Generar HTML para Excel
+            # Generar HTML para Excel idéntico al original
             html = '<table border="1" style="font-family: Calibri; border-collapse: collapse;">'
-            html += '<tr style="background-color: #008657; color: white;"><th>INTERNO</th><th>ESTADO</th><th>VENCIMIENTO</th></tr>'
-            for r in st.session_state.resultados:
-                bg = "#C6EFCE" if "VIGENTE" in r['status'] else "#FFC7CE"
-                html += f"<tr><td>{r['id']}</td><td style='background-color:{bg}'>{r['status']}</td><td>{r['venc']}</td></tr>"
+            html += f'<tr style="background-color: {VERDE_SULLAIR}; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>'
+            for r in resultados:
+                bg, tx = ("#C6EFCE", "#006100") if "VIGENTE" in r['status'] else ("#FFC7CE", "#9C0006")
+                html += f"<tr><td>{r['id']}</td><td style='background-color:{bg}; color:{tx}; font-weight: bold;'>{r['status']}</td><td>{r['insp']}</td><td>{r['venc']}</td><td>{r['cert']}</td><td>{r['inf']}</td><td>{r['det']}</td></tr>"
             html += '</table>'
             st.session_state.html_reporte = html
             st.rerun()
 
-# --- BOTONES DE ACCIÓN (Siempre visibles) ---
+# --- BOTONES DE ACCIÓN ---
 st.divider()
 dcol1, dcol2 = st.columns(2)
 
 with dcol1:
-    if st.button("📋 Copiar Reporte para Excel", disabled=not st.session_state.proceso_completo, use_container_width=True):
-        st_copy_to_clipboard(st.session_state.html_reporte)
+    st.write("📊 Reporte para Excel:")
+    if st.session_state.proceso_completo:
+        # Este componente sí funciona para copiar HTML/Texto en web
+        st_copy_to_clipboard(st.session_state.html_reporte, before_copy_label="📋 Copiar Reporte para Excel", after_copy_label="✅ ¡Copiado! Pegá en Excel")
+    else:
+        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
-    # Recuperamos el botón de descarga
+    st.write("📂 Certificados:")
     zip_buffer = BytesIO()
     if st.session_state.proceso_completo:
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
@@ -167,7 +149,7 @@ with dcol2:
     st.download_button(
         "📂 Descargar Archivo ZIP", 
         data=zip_buffer.getvalue() if zip_buffer.tell() > 0 else b"", 
-        file_name="certificados.zip", 
+        file_name="certificados_hopper.zip", 
         disabled=not (st.session_state.proceso_completo and zip_buffer.tell() > 0),
         use_container_width=True
     )
