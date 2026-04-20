@@ -80,8 +80,8 @@ def check_password():
         
         if "password_correct" in st.session_state and not st.session_state["password_correct"]:
             st.error("😕 Usuario o contraseña incorrectos")
-            return False
-        return True
+    return False
+return True
 
 # --- FLUJO PRINCIPAL ---
 if check_password():
