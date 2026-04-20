@@ -16,51 +16,24 @@ class WLHopperBot:
         self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
     def iniciar(self, usuario, clave):
-        # --- FIX PARA STREAMLIT CLOUD: INSTALACIÓN DINÁMICA ---
+        # --- NUEVA ESTRATEGIA DE INSTALACIÓN ---
         try:
-            # Intentamos arrancar Playwright
-            self.pw = sync_playwright().start()
+            # Intentamos instalar solo si es necesario, ignorando errores si ya existe
+            subprocess.run(["playwright", "install", "chromium"], check=False)
         except Exception as e:
-            # Si falla el motor, es probable que falten binarios
-            return False
+            print(f"Aviso en instalación: {e}")
 
+        self.pw = sync_playwright().start()
+        
         try:
-            # Intentamos lanzar el navegador con banderas de estabilidad
-            self.browser = self.pw.chromium.launch(
-                headless=self.headless,
-                args=[
-                    "--no-sandbox", 
-                    "--disable-dev-shm-usage", 
-                    "--disable-gpu", 
-                    "--disable-extensions"
-                ]
-            )
-        except Exception as e:
-            # Si falla aquí (TargetClosedError), forzamos la instalación de Chromium
-            print("Navegador no encontrado. Instalando binarios de Chromium...")
-            subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
-            subprocess.run(["python", "-m", "playwright", "install-deps"], check=True)
-            
-            # Reintentamos el lanzamiento
             self.browser = self.pw.chromium.launch(
                 headless=self.headless,
                 args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
             )
-        
-        self.context = self.browser.new_context()
-        self.page = self.context.new_page()
-        
-        try:
-            self.page.goto("https://certifica.worklift.com.ar/login/", wait_until="load", timeout=60000)
-            self.page.locator('input[type="email"]').fill(usuario)
-            self.page.locator('input[type="password"]').fill(clave)
-            self.page.click('button:has-text("Ingresar")')
-            self.page.wait_for_load_state("networkidle")
-            return True
-        except Exception as e: 
-            print(f"Error en Login: {e}")
-            return False
-
+        except Exception as e:
+            # Si falla el launch, intentamos una última vez con la ruta de sistema
+            print("Reintentando lanzamiento forzado...")
+            self.browser = self.pw.chromium.launch(headless=True, args=["--no-sandbox"])
     def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe):
         try:
             # Limpieza y búsqueda
