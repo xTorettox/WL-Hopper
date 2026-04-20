@@ -16,24 +16,28 @@ class WLHopperBot:
         self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
     def iniciar(self, usuario, clave):
-        # --- NUEVA ESTRATEGIA DE INSTALACIÓN ---
-        try:
-            # Intentamos instalar solo si es necesario, ignorando errores si ya existe
-            subprocess.run(["playwright", "install", "chromium"], check=False)
-        except Exception as e:
-            print(f"Aviso en instalación: {e}")
-
         self.pw = sync_playwright().start()
         
         try:
+            # Intento 1: Lanzamiento estándar
             self.browser = self.pw.chromium.launch(
                 headless=self.headless,
                 args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
             )
         except Exception as e:
-            # Si falla el launch, intentamos una última vez con la ruta de sistema
-            print("Reintentando lanzamiento forzado...")
-            self.browser = self.pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            # Intento 2: Si el 1 falla, buscamos el Chromium que instaló el packages.txt
+            # En Streamlit Cloud suele estar en esta ruta:
+            self.browser = self.pw.chromium.launch(
+                executable_path="/usr/bin/chromium", 
+                headless=self.headless,
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
+        
+        self.context = self.browser.new_context()
+        self.page = self.context.new_page()
+        # ... resto de tu lógica de login
+
+    
     def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe):
         try:
             # Limpieza y búsqueda
