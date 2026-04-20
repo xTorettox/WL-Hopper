@@ -1,26 +1,47 @@
 import re
 import os
-import json
 from datetime import datetime, timedelta
 
 def extraer_internos(texto_sucio):
     """
-    Regex flexible para internos viejos (4 dígitos) y nuevos (E/A + 6 dígitos).
-    Limpia ruido de Excel, comas y espacios.
+    Lógica Híbrida:
+    1. Usa Regex para los nuevos (E03, A04, E06, etc.)
+    2. Usa internos_viejos.txt para los que no cumplen el patrón nuevo.
     """
-    # Patrón: Opcional E o A, seguido de 4 a 7 dígitos.
-    patron = r"(?:[EA])?\d{4,7}"
-    encontrados = re.findall(patron, texto_sucio.upper())
+    texto_upper = texto_sucio.upper()
     
-    # Retorna lista sin duplicados manteniendo orden de aparición
-    return list(dict.fromkeys(encontrados))
+    # --- 1. REGEX PARA NOMENCLATURA NUEVA ---
+    # Patrón: E o A + 0 + (3, 4 o 6) + 4 dígitos. Ejemplo: E040230
+    patron_nuevo = r'\b[EA]0[346]\d{4}\b'
+    encontrados_nuevos = set(re.findall(patron_nuevo, texto_upper))
+    
+    # --- 2. BÚSQUEDA DE INTERNOS VIEJOS (Lista de Oro) ---
+    encontrados_viejos = set()
+    ruta_viejos = "internos_viejos.txt"
+    
+    if os.path.exists(ruta_viejos):
+        try:
+            with open(ruta_viejos, "r") as f:
+                # Cargamos set limpio (sin espacios ni líneas vacías)
+                base_viejos = {line.strip().upper() for line in f if line.strip()}
+            
+            # Separamos el texto sucio por cualquier cosa que no sea letra o número
+            palabras_en_texto = set(re.split(r'[^A-Z0-9]', texto_upper))
+            # Intersección: solo los que están en el texto Y en la lista de viejos
+            encontrados_viejos = palabras_en_texto.intersection(base_viejos)
+        except Exception as e:
+            print(f"Error al leer internos_viejos.txt: {e}")
+
+    # Unimos ambos, eliminamos duplicados y ordenamos
+    resultado = sorted(list(encontrados_nuevos.union(encontrados_viejos)))
+    return resultado
 
 def analizar_fecha(fecha_str):
     """
-    Determina si el certificado es válido, está por vencer o vencido.
+    Determina el estado del certificado.
     Retorna: (estado, color, puede_descargar)
     """
-    if not fecha_str or fecha_str == "N/A":
+    if not fecha_str or fecha_str in ["N/A", "SIN REGISTRO"]:
         return "SIN REGISTRO", "gray", False
         
     try:
@@ -38,19 +59,7 @@ def analizar_fecha(fecha_str):
     except ValueError:
         return "ERROR FORMATO", "gray", False
 
-def gestionar_config(accion="leer", data=None):
-    """ Lee o guarda la configuración en el archivo JSON """
-    archivo = "config.json"
-    if accion == "leer":
-        if os.path.exists(archivo):
-            with open(archivo, "r") as f:
-                return json.load(f)
-        return {"usuario": "", "clave": "", "recordar": False, "ultima_ruta": "descargas"}
-    
-    elif accion == "guardar" and data:
-        with open(archivo, "w") as f:
-            json.dump(data, f, indent=4)
-
 def asegurar_carpeta(ruta):
+    """ Crea la carpeta temporal de descargas si no existe """
     if not os.path.exists(ruta):
         os.makedirs(ruta)
