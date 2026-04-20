@@ -7,6 +7,7 @@ from io import BytesIO
 from scraper import WLHopperBot
 from utils import extraer_internos, asegurar_carpeta
 import streamlit.components.v1 as components
+import base64
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
@@ -15,24 +16,8 @@ st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/fa
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* Botón principal */
-    div.stButton > button:first-child {{ 
-        background-color: {VERDE_SULLAIR} !important; 
-        color: white !important; 
-        font-weight: bold; 
-    }}
-    /* Terminal con altura fija para nivelar con la izquierda */
-    .terminal-box {{ 
-        background-color: #212529; 
-        color: #f8f9fa; 
-        font-family: 'Consolas', monospace; 
-        font-size: 13px; 
-        padding: 15px; 
-        border-radius: 5px; 
-        height: 522px; 
-        overflow-y: auto; 
-        border: 1px solid #444; 
-    }}
+    div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
+    .terminal-box {{ background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace; font-size: 13px; padding: 15px; border-radius: 5px; height: 535px; overflow-y: auto; border: 1px solid #444; }}
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
     .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
     </style>
@@ -43,6 +28,7 @@ if "log_history" not in st.session_state: st.session_state.log_history = []
 if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
 if "html_excel" not in st.session_state: st.session_state.html_excel = ""
 if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
+if "zip_base64" not in st.session_state: st.session_state.zip_base64 = ""
 
 # --- LAYOUT ---
 col_left, col_right = st.columns([1, 1.2], gap="large")
@@ -75,7 +61,7 @@ with col_right:
         terminal_placeholder.markdown(html, unsafe_allow_html=True)
     render_terminal()
 
-# --- LÓGICA DE PROCESO ---
+# --- LÓGICA ---
 if btn_run:
     if not user or not pw: st.error("Faltan credenciales.")
     else:
@@ -107,9 +93,18 @@ if btn_run:
             st.session_state.log_history.append("🔓 Sesión cerrada correctamente.")
             st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
             st.session_state.proceso_completo = True
-            st.session_state.hay_archivos = len(os.listdir(ruta_temp)) > 0 if os.path.exists(ruta_temp) else False
-
-            # Generación de HTML
+            
+            # Preparar ZIP
+            z_buf = BytesIO()
+            archivos = os.listdir(ruta_temp) if os.path.exists(ruta_temp) else []
+            if archivos:
+                with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
+                    for r, d, f_list in os.walk(ruta_temp):
+                        for f in f_list: zf.write(os.path.join(r, f), f)
+                st.session_state.hay_archivos = True
+                st.session_state.zip_base64 = base64.b64encode(z_buf.getvalue()).decode()
+            
+            # Generar HTML
             html = """<style>table { border-collapse: collapse; } td { white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; } th { white-space: nowrap; text-align: center; padding: 10px 20px; }</style>
             <table width="100%" border="1" style="font-family: Calibri;">
             <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>"""
@@ -123,56 +118,52 @@ if btn_run:
                 html += f'<td>{r["insp"]}</td><td>{r["venc"]}</td><td>{cert_val}</td><td>{r["inf"]}</td>'
                 html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r["det"]}</td></tr>'
             html += "</table>"
-            st.session_state.html_excel = html.replace("\n", "")
+            st.session_state.html_excel = html.replace("\n", "").replace("'", "\\'")
             st.rerun()
 
-# --- BOTONES DE ACCIÓN ---
+# --- BOTONES DE ACCIÓN (La solución final al desnivel) ---
 st.divider()
-dcol1, dcol2 = st.columns(2)
 
-with dcol1:
-    if st.session_state.proceso_completo:
-        # El botón de copia con el feedback adentro, pero sin capas raras de CSS
-        components.html(f"""
-            <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">
-                📋 Copiar Reporte para Excel
-            </button>
+if not st.session_state.proceso_completo:
+    c1, c2 = st.columns(2)
+    c1.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
+    c2.button("📂 Descargar Archivo ZIP", disabled=True, use_container_width=True)
+else:
+    # Metemos AMBOS botones en un solo componente HTML. Imposible que se desnivelen.
+    btn_zip_html = f'<a href="data:application/zip;base64,{st.session_state.zip_base64}" download="certificados.zip" style="text-decoration:none; width:100%;">' \
+                   f'<button style="width:100%; height:45px; background-color:white; color:black; border:1px solid #ccc; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">📂 Descargar Archivo ZIP</button></a>' \
+                   if st.session_state.hay_archivos else \
+                   f'<button disabled style="width:100%; height:45px; background-color:#f0f2f6; color:#aaa; border:none; border-radius:4px; font-weight:bold; font-family:sans-serif;">📂 Descargar Archivo ZIP</button>'
+
+    components.html(f"""
+        <div style="display: flex; gap: 20px; align-items: center; height: 45px;">
+            <div style="flex: 1;">
+                <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">
+                    📋 Copiar Reporte para Excel
+                </button>
+            </div>
+            <div style="flex: 1;">
+                {btn_zip_html}
+            </div>
             <textarea id="hT" style="display:none;">{st.session_state.html_excel}</textarea>
-            <script>
-            document.getElementById('cBtn').onclick = function() {{
-                const btn = this;
-                const blob = new Blob([document.getElementById('hT').value], {{ type: 'text/html' }});
-                const data = [new ClipboardItem({{ 'text/html': blob }})];
-                navigator.clipboard.write(data).then(() => {{
-                    btn.innerHTML = "✅ ¡COPIADO!";
-                    btn.style.backgroundColor = "#28a745";
-                    setTimeout(() => {{ 
-                        btn.innerHTML = "📋 Copiar Reporte para Excel"; 
-                        btn.style.backgroundColor = "{VERDE_SULLAIR}"; 
-                    }}, 2000);
-                }});
-            }};
-            </script>
-        """, height=45)
-    else:
-        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
+        </div>
+        <script>
+        document.getElementById('cBtn').onclick = function() {{
+            const btn = this;
+            const blob = new Blob([document.getElementById('hT').value], {{ type: 'text/html' }});
+            const data = [new ClipboardItem({{ 'text/html': blob }})];
+            navigator.clipboard.write(data).then(() => {{
+                btn.innerHTML = "✅ ¡COPIADO!";
+                btn.style.backgroundColor = "#28a745";
+                setTimeout(() => {{ 
+                    btn.innerHTML = "📋 Copiar Reporte para Excel"; 
+                    btn.style.backgroundColor = "{VERDE_SULLAIR}"; 
+                }}, 2000);
+            }});
+        }};
+        </script>
+    """, height=50)
 
-with dcol2:
-    z_buf = BytesIO()
-    if st.session_state.proceso_completo and st.session_state.hay_archivos:
-        with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
-            for r, d, files in os.walk("descargas_temp"):
-                for f in files: zf.write(os.path.join(r, f), f)
-    
-    st.download_button(
-        "📂 Descargar Archivo ZIP", 
-        data=z_buf.getvalue(), 
-        file_name="certificados.zip", 
-        disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
-        use_container_width=True
-    )
-
-# --- CAPTIONS ---
 st.divider()
 st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
 st.caption("Consultas a: fcendra@sullair.com.ar")
