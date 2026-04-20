@@ -115,17 +115,26 @@ st.divider()
 dcol1, dcol2 = st.columns(2)
 
 with dcol1:
-    # Volvemos a la versión original de Streamlit que no falla
-    if st.button("📋 Copiar Reporte para Excel", disabled=not st.session_state.proceso_completo, use_container_width=True):
-        # Usamos components.html solo para la ejecución del copiado al clickear
-        components.html(f"""
+    if st.session_state.proceso_completo:
+        # Usamos un componente que detecta el clic para el toast
+        # y el JS para el copiado real (que es lo único que mantiene el formato)
+        if components.html(f"""
+            <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">📋 Copiar Reporte para Excel</button>
             <script>
-            const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
-            const item = new ClipboardItem({{ 'text/html': blob }});
-            navigator.clipboard.write([item]);
+            document.getElementById('cBtn').onclick = function() {{
+                const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
+                const item = new ClipboardItem({{ 'text/html': blob }});
+                navigator.clipboard.write([item]).then(() => {{
+                    // Avisamos a Streamlit que el copiado fue exitoso
+                    window.parent.postMessage({{type: 'streamlit:set_component_value', value: 'copiado'}}, '*');
+                }});
+            }};
             </script>
-        """, height=0)
-        st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
+        """, height=50):
+            # Si el componente devuelve algo (clic), tiramos el toast elegante
+            st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
+    else:
+        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
     z_buf = BytesIO()
