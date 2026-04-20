@@ -16,7 +16,7 @@ VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
     /* Reducir margen superior */
-    .block-container {{ padding-top: 1rem !important; padding-bottom: 0rem !important; }}
+    .block-container {{ padding-top: 0.5rem !important; padding-bottom: 0rem !important; }}
     
     /* Verde Sullair en Botones y Checkboxes */
     div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; }}
