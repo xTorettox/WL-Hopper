@@ -44,45 +44,37 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- FUNCIÓN DE LOGIN (Control de Acceso) ---
-# --- FUNCIÓN DE LOGIN (Control de Acceso) ---
 def check_password():
     """Devuelve True si el usuario ingresó credenciales válidas."""
     def password_entered():
-        # Verificamos contra los secrets de Streamlit
         if st.session_state["username"] in st.secrets["passwords"] and \
            st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Borramos la clave por seguridad
+            del st.session_state["password"]  # Limpieza de seguridad
         else:
             st.session_state["password_correct"] = False
 
-    # Si NO es True (es decir, es False o None), mostramos el login
+    # FIX: Se usa .get() y se verifica que sea específicamente True
     if st.session_state.get("password_correct") is not True:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
-        
-        with c_l2:
-            # El TRY evita que la app muera si el nombre del archivo está mal
+        # Pantalla de Login
+        c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
+        with c_l2: 
             try:
-                # REVISÁ ESTE NOMBRE: Debe ser idéntico al de tu carpeta img
                 st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
             except:
-                st.markdown("<h2 style='text-align: center;'>🚀 WL Hopper</h2>", unsafe_allow_html=True)
-            
-            st.markdown("<h4 style='text-align: center;'>Acceso al Sistema</h4>", unsafe_allow_html=True)
-            
+                pass
+            st.markdown("<h3 style='text-align: center;'>Acceso al Sistema</h3>", unsafe_allow_html=True)
             with st.form("login_form"):
                 st.text_input("Usuario", key="username")
                 st.text_input("Contraseña", type="password", key="password")
                 st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
-            
-            # Solo mostramos el error si el usuario ya intentó y falló
-            if st.session_state.get("password_correct") == False:
-                st.error("😕 Usuario o contraseña incorrectos")
         
-        return False  # <--- Corta la ejecución aquí, no deja pasar al resto de la app
+        if st.session_state.get("password_correct") == False:
+            st.error("😕 Usuario o contraseña incorrectos")
         
-    return True # <--- Solo llega acá si el login fue exitoso
+        return False  # Mantiene el muro hasta que sea True
+        
+    return True
 
 # --- INICIO DE LA APLICACIÓN (Si el login es exitoso) ---
 if check_password():
@@ -149,7 +141,7 @@ if check_password():
                             st.session_state.log_history.append(f"⚙️ Procesando: {interno}...")
                             res = bot.procesar_interno(interno, "descargas_temp", b_cert, b_inf)
                             
-                            # Alertas visuales en terminal
+                            # Alertas visuales en terminal (esto estaba en tu versión estable)
                             st_text = res['status'].upper()
                             if "VIGENTE" in st_text:
                                 st.session_state.log_history.append(f"  ✅ Certificado VIGENTE (Vence: {res['venc']})")
@@ -176,7 +168,7 @@ if check_password():
                         st.session_state.hay_archivos = any(r["Cert"] == "SI" or r["Inf"] == "SI" for r in resultados)
                         st.session_state.log_history.append("🏁 ¡PROCESO FINALIZADO!")
                     else:
-                        st.session_state.log_history.append("❌ Error de Login: Credenciales de Worklift incorrectas.")
+                        st.session_state.log_history.append("❌ Error de Login en Worklift.")
 
     with c2:
         st.write("📟 Consola de Proceso")
