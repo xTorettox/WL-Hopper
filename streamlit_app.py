@@ -57,7 +57,7 @@ def check_password():
     if "password_correct" not in st.session_state:
         # Pantalla de Login
         c_l1, c_l2, c_l3 = st.columns([1, 2, 1])
-        with c_l2: st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
+        with c_l2: st.image("img/WL Hopper Logo - nspc.png", use_container_width=True, width=150)
         st.write("# Acceso a WL Hopper")
         with st.form("login_form"):
             st.text_input("Usuario", key="username")
