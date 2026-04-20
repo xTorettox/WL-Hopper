@@ -1,22 +1,29 @@
 import streamlit as st
 import os
+import shutil
 import pandas as pd
 import zipfile
 from io import BytesIO
 from scraper import WLHopperBot
 from utils import extraer_internos, asegurar_carpeta
+import streamlit.components.v1 as components
 
-# --- CONFIGURACIÓN DE PÁGINA E ICONO ---
-# Usamos el favicon.png de la carpeta img
-st.set_page_config(
-    page_title="Sullair Argentina - WL Hopper", 
-    page_icon="img/favicon.png", 
-    layout="wide"
-)
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Sullair Argentina - WL Hopper", page_icon="img/favicon.png", layout="wide")
 
-# --- ESTILO CSS (Terminal, Layout y Botones) ---
+# --- ESTILO CSS (Verde Sullair y Terminal) ---
 st.markdown("""
     <style>
+    /* Color Verde Sullair para botones y checkboxes */
+    div.stButton > button:first-child {
+        background-color: #008657 !important;
+        color: white !important;
+        border: none !important;
+    }
+    div[data-testid="stCheckbox"] > label > div[data-testid="stWidgetLabel"] {
+        color: #008657 !important;
+    }
+    
     .terminal-box {
         background-color: #212529;
         color: #f8f9fa;
@@ -24,39 +31,52 @@ st.markdown("""
         font-size: 13px;
         padding: 15px;
         border-radius: 5px;
-        height: 500px;
+        height: 540px; /* Ajustado para que termine a la altura del botón */
         overflow-y: auto;
         border: 1px solid #444;
     }
     .log-entry { margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }
-    .main-logo { display: block; margin-left: auto; margin-right: auto; padding-bottom: 20px; }
+    
+    /* Centrado de logo */
+    .logo-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        margin-bottom: 20px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- INICIALIZACIÓN DE ESTADOS ---
-if "playwright_installed" not in st.session_state:
-    os.system("playwright install chromium")
-    st.session_state.playwright_installed = True
+# --- FUNCIÓN PARA COPIAR (JS) ---
+def st_copy_to_clipboard(text):
+    # Solución al AttributeError: Usamos JS para copiar
+    components.html(f"""
+        <script>
+        const text = `{text}`;
+        navigator.clipboard.writeText(text).then(() => {{
+            window.parent.postMessage({{type: 'copy_success'}}, '*');
+        }});
+        </script>
+    """, height=0)
+    st.toast("¡Reporte copiado! Dale Ctrl+V en Excel.")
 
-if "log_history" not in st.session_state:
-    st.session_state.log_history = []
+# --- INICIALIZACIÓN ---
+if "log_history" not in st.session_state: st.session_state.log_history = []
+if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
+if "resultados" not in st.session_state: st.session_state.resultados = []
+if "html_reporte" not in st.session_state: st.session_state.html_reporte = ""
 
-if "proceso_completo" not in st.session_state:
-    st.session_state.proceso_completo = False
-
-if "resultados" not in st.session_state:
-    st.session_state.resultados = []
-
-# --- CABECERA MEJORADA ---
-# Centramos y agrandamos el logo para que no se vea "solo y chico"
-st.image("img/WL Hopper Logo - nspc.png", width=450)
-st.markdown("<h4 style='text-align: center; color: #666;'>Automatización de Descarga de Certificados de Worklift</h4>", unsafe_allow_html=True)
-st.divider()
-
-# --- LAYOUT PRINCIPAL ---
+# --- LAYOUT ---
 col_left, col_right = st.columns([1, 1.2], gap="large")
 
 with col_left:
+    # Logo centrado con subtítulo (Pedido #1)
+    st.markdown('<div class="logo-container">', unsafe_allow_html=True)
+    st.image("img/WL Hopper Logo - nspc.png", width=350)
+    st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     st.markdown("##### Acceso y Configuración")
     with st.container(border=True):
         user = st.text_input("Usuario (Email)", key="user_email")
@@ -66,8 +86,8 @@ with col_left:
         bajar_inf = c2.checkbox("Informes Técnicos", value=False)
 
     st.markdown("##### Listado de Internos")
-    texto_internos = st.text_area("Pegá aquí:", height=150, placeholder="E040230, 3797...")
-    btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True, type="primary")
+    texto_internos = st.text_area("Pegá aquí:", height=100, placeholder="E040230, 3797...")
+    btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
 
 with col_right:
     st.markdown("##### Registro de Actividad")
@@ -88,14 +108,15 @@ if btn_run:
     elif not texto_internos.strip():
         st.warning("No hay internos.")
     else:
+        ruta_temp = "descargas_temp"
+        if os.path.exists(ruta_temp): shutil.rmtree(ruta_temp)
+        asegurar_carpeta(ruta_temp)
+
         st.session_state.proceso_completo = False
-        st.session_state.log_history = ["Iniciando conexión con Worklift..."]
+        st.session_state.log_history = ["🧹 Carpeta temporal limpia.", "Conectando con Worklift..."]
         render_terminal()
         
         bot = WLHopperBot(headless=True)
-        ruta_temp = "descargas_temp"
-        asegurar_carpeta(ruta_temp)
-        
         if bot.iniciar(user, pw):
             st.session_state.log_history.append("🔐 Log in exitoso.")
             render_terminal()
@@ -104,72 +125,51 @@ if btn_run:
             st.session_state.resultados = []
             
             for int_id in lista:
-                st.session_state.log_history.append(f"--- Procesando interno {int_id} ---")
+                st.session_state.log_history.append(f"--- Procesando {int_id} ---")
                 render_terminal()
-                # El bot ya NO descarga si está vencido por lógica interna de scraper.py
                 res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf)
                 res['id'] = int_id
                 st.session_state.resultados.append(res)
-                for msg in res.get('log', []):
-                    st.session_state.log_history.append(f"&nbsp;&nbsp;{msg}")
+                for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
                 render_terminal()
 
             bot.cerrar()
             st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
             st.session_state.proceso_completo = True
-            render_terminal()
-            st.rerun() # Refrescamos para habilitar botones
-        else:
-            st.session_state.log_history.append("❌ ERROR: Credenciales inválidas.")
-            render_terminal()
+            
+            # Generar HTML para Excel
+            html = '<table border="1" style="font-family: Calibri; border-collapse: collapse;">'
+            html += '<tr style="background-color: #008657; color: white;"><th>INTERNO</th><th>ESTADO</th><th>VENCIMIENTO</th></tr>'
+            for r in st.session_state.resultados:
+                bg = "#C6EFCE" if "VIGENTE" in r['status'] else "#FFC7CE"
+                html += f"<tr><td>{r['id']}</td><td style='background-color:{bg}'>{r['status']}</td><td>{r['venc']}</td></tr>"
+            html += '</table>'
+            st.session_state.html_reporte = html
+            st.rerun()
 
-# --- BOTONES DE ACCIÓN (Siempre visibles, deshabilitados según estado) ---
+# --- BOTONES DE ACCIÓN (Siempre visibles) ---
 st.divider()
 dcol1, dcol2 = st.columns(2)
 
-# 1. COPIAR REPORTE EXCEL (HTML con formato original)
-# Generamos el HTML con el semáforo de colores
-html_excel = ""
-if st.session_state.proceso_completo:
-    html_excel = r"""<table border="1" style="font-family: Calibri; border-collapse: collapse;">
-    <tr style="background-color: #008657; color: white; font-weight: bold;">
-    <th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>"""
-    for r in st.session_state.resultados:
-        bg, tx, st_text = "#FFFFFF", "#000000", r.get('status', '').upper()
-        if "VIGENTE" in st_text: bg, tx = "#C6EFCE", "#006100"
-        elif "PRÓXIMO" in st_text: bg, tx = "#FFEB9C", "#9C5700"
-        elif "VENCIDO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
-        html_excel += f"""<tr><td>{r.get('id','-')}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>
-        <td>{r.get('insp','-')}</td><td>{r.get('venc','-')}</td><td>{r.get('cert','NO')}</td><td>{r.get('inf','NO')}</td>
-        <td style="text-align: left;">{r.get('det','-')}</td></tr>"""
-    html_excel += "</table>"
-
 with dcol1:
-    # En la web usamos un archivo .xls que Excel abre interpretando el HTML (mantiene formato)
-    st.download_button(
-        "📊 Copiar Reporte Excel", 
-        data=html_excel, 
-        file_name="reporte_hopper.xls", 
-        mime="text/html",
-        disabled=not st.session_state.proceso_completo,
-        use_container_width=True
-    )
+    if st.button("📋 Copiar Reporte para Excel", disabled=not st.session_state.proceso_completo, use_container_width=True):
+        st_copy_to_clipboard(st.session_state.html_reporte)
 
-# 2. DESCARGAR ARCHIVO ZIP
 with dcol2:
+    # Recuperamos el botón de descarga
     zip_buffer = BytesIO()
     if st.session_state.proceso_completo:
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            for root, _, files in os.walk("descargas_temp"):
-                for file in files: zip_file.write(os.path.join(root, file), file)
+            if os.path.exists("descargas_temp"):
+                for root, _, files in os.walk("descargas_temp"):
+                    for file in files: zip_file.write(os.path.join(root, file), file)
     
     st.download_button(
         "📂 Descargar Archivo ZIP", 
-        data=zip_buffer.getvalue(), 
+        data=zip_buffer.getvalue() if zip_buffer.tell() > 0 else b"", 
         file_name="certificados.zip", 
-        mime="application/zip",
-        disabled=not st.session_state.proceso_completo,
+        disabled=not (st.session_state.proceso_completo and zip_buffer.tell() > 0),
         use_container_width=True
     )
-
-st.markdown("<br><p style='text-align: left; font-size: 12px; color: #666;'>© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.</p>", unsafe_allow_html=True)
+    
+st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
