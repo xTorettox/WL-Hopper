@@ -55,14 +55,28 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
+        # CSS inyectado SOLO para la pantalla de login
+        st.markdown("""
+            <style>
+            /* Achicamos el margen del formulario y los espacios entre inputs */
+            [data-testid="stForm"] {
+                padding: 1rem !important;
+                border-radius: 10px;
+            }
+            div[data-testid="stTextInput"] {
+                margin-top: -15px;
+            }
+            </style>
+        """, unsafe_allow_html=True)
         # Pantalla de Login
-        c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
+        c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
         with c_l2: st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
         st.markdown("<h3 style='text-align: center;'>Acceso al Sistema</h3>", unsafe_allow_html=True)
         with st.form("login_form"):
-            st.text_input("Usuario", key="username")
-            st.text_input("Contraseña", type="password", key="password")
-            st.form_submit_button("Ingresar", on_click=password_entered)
+                # Ponemos los labels vacíos para ganar espacio y usamos placeholders
+                st.text_input("Usuario", key="username", placeholder="Tu usuario...")
+                st.text_input("Contraseña", type="password", key="password", placeholder="••••••••")
+                st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
         
         if "password_correct" in st.session_state and not st.session_state["password_correct"]:
             st.error("😕 Usuario o contraseña incorrectos")
