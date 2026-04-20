@@ -13,15 +13,40 @@ st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/fa
 
 # --- ESTILOS CSS ---
 VERDE_SULLAIR = "#008657"
+# --- ESTILOS CSS REVISADOS ---
+VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    .block-container {}
-    div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
-    [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] p {{ color: {VERDE_SULLAIR} !important; font-weight: bold; }}
-    input[type="checkbox"]:checked */ + div {{ background-color: {VERDE_SULLAIR} !important; border-color: {VERDE_SULLAIR} !important; }}*/
-    .terminal-box {{ background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace; font-size: 13px; padding: 15px; border-radius: 5px; height: 535px; overflow-y: auto; border: 1px solid #444; }}
+    /* Botón Principal mantiene el verde */
+    div.stButton > button:first-child {{ 
+        background-color: {VERDE_SULLAIR} !important; 
+        color: white !important; 
+        font-weight: bold; 
+    }}
+    
+    /* Terminal con el estilo original */
+    .terminal-box {{ 
+        background-color: #212529; 
+        color: #f8f9fa; 
+        font-family: 'Consolas', monospace; 
+        font-size: 13px; 
+        padding: 15px; 
+        border-radius: 5px; 
+        height: 535px; 
+        overflow-y: auto; 
+        border: 1px solid #444; 
+    }}
+    
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
-    .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
+    
+    /* Contenedor del logo */
+    .logo-container {{ 
+        display: flex; 
+        justify-content: center; 
+        align-items: center; 
+        flex-direction: column; 
+        margin-bottom: 10px; 
+    }}
     </style>
     """, unsafe_allow_html=True)
 
