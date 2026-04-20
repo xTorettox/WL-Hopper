@@ -11,48 +11,22 @@ import streamlit.components.v1 as components
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
 
-# --- ESTILOS CSS ---
-VERDE_SULLAIR = "#008657"
-# --- ESTILOS CSS REVISADOS ---
+# --- ESTILOS CSS REVISADOS (Sin padding extra ni checks verdes) ---
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* Botón Principal mantiene el verde */
-    div.stButton > button:first-child {{ 
-        background-color: {VERDE_SULLAIR} !important; 
-        color: white !important; 
-        font-weight: bold; 
-    }}
-    
-    /* Terminal con el estilo original */
-    .terminal-box {{ 
-        background-color: #212529; 
-        color: #f8f9fa; 
-        font-family: 'Consolas', monospace; 
-        font-size: 13px; 
-        padding: 15px; 
-        border-radius: 5px; 
-        height: 535px; 
-        overflow-y: auto; 
-        border: 1px solid #444; 
-    }}
-    
+    div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
+    .terminal-box {{ background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace; font-size: 13px; padding: 15px; border-radius: 5px; height: 535px; overflow-y: auto; border: 1px solid #444; }}
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
-    
-    /* Contenedor del logo */
-    .logo-container {{ 
-        display: flex; 
-        justify-content: center; 
-        align-items: center; 
-        flex-direction: column; 
-        margin-bottom: 10px; 
-    }}
+    .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
     </style>
     """, unsafe_allow_html=True)
 
 # --- INICIALIZACIÓN ---
-for key in ["log_history", "proceso_completo", "html_excel", "hay_archivos"]:
-    if key not in st.session_state: st.session_state[key] = [] if "history" in key else False
+if "log_history" not in st.session_state: st.session_state.log_history = []
+if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
+if "html_excel" not in st.session_state: st.session_state.html_excel = ""
+if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
 
 # --- LAYOUT ---
 col_left, col_right = st.columns([1, 1.2], gap="large")
@@ -87,8 +61,8 @@ with col_right:
 
 # --- LÓGICA DE PROCESO ---
 if btn_run:
-    # Scroll arriba al comenzar
-    components.html("<script>window.parent.window.scrollTo({top: 0, behavior: 'smooth'});</script>", height=0)
+    # SCROLL ARRIBA (Forzado por JS directo al body del frame)
+    components.html("<script>window.parent.document.body.parentElement.scrollTo({top: 0, behavior: 'smooth'});</script>", height=0)
     
     if not user or not pw: st.error("Faltan credenciales.")
     else:
@@ -97,7 +71,7 @@ if btn_run:
         asegurar_carpeta(ruta_temp)
 
         st.session_state.proceso_completo = False
-        st.session_state.log_history = ["Iniciando conexión con Worklift..."]
+        st.session_state.log_history = ["🧹 Carpeta temporal limpia.", "Iniciando conexión..."]
         render_terminal()
         
         bot = WLHopperBot(headless=True)
@@ -118,7 +92,7 @@ if btn_run:
             st.session_state.proceso_completo = True
             st.session_state.hay_archivos = len(os.listdir(ruta_temp)) > 0 if os.path.exists(ruta_temp) else False
 
-            # GENERAR HTML (Pedido: Vencido -> Certificado NO)
+            # HTML con corrección de Vencido -> Certificado NO
             html = """<style>table { border-collapse: collapse; } td { white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; } th { white-space: nowrap; text-align: center; padding: 10px 20px; }</style>
             <table width="100%" border="1" style="font-family: Calibri;">
             <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>"""
@@ -134,28 +108,32 @@ if btn_run:
             html += "</table>"
             st.session_state.html_excel = html.replace("\n", "").replace("'", "\\'")
             
-            # Scroll abajo al finalizar
-            components.html("<script>setTimeout(() => { window.parent.window.scrollTo({top: 2000, behavior: 'smooth'}); }, 500);</script>", height=0)
+            # SCROLL ABAJO (Forzado al final del proceso)
+            components.html("<script>setTimeout(() => { window.parent.document.body.parentElement.scrollTo({top: 2000, behavior: 'smooth'}); }, 500);</script>", height=0)
             st.rerun()
 
-# --- ACCIONES FINALES ---
+# --- BOTONES DE ACCIÓN ---
 st.divider()
 dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # Copiado con aviso instantáneo
-        if components.html(f"""
+        # El botón de copiado ahora maneja su propio mensaje de éxito internamente en el componente
+        components.html(f"""
+            <div id="msg" style="color: #008657; font-family: sans-serif; font-size: 12px; margin-bottom: 5px; height: 15px; font-weight: bold; text-align: center;"></div>
             <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">📋 Copiar Reporte para Excel</button>
             <script>
             document.getElementById('cBtn').onclick = function() {{
-                const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
-                const item = new ClipboardItem({{ 'text/html': blob }});
-                navigator.clipboard.write([item]).then(() => {{ window.parent.postMessage({{type:'streamlit:set_component_value', value:true}}, '*'); }});
+                const html = '{st.session_state.html_excel}';
+                const blob = new Blob([html], {{ type: 'text/html' }});
+                const data = [new ClipboardItem({{ 'text/html': blob }})];
+                navigator.clipboard.write(data).then(() => {{
+                    document.getElementById('msg').innerText = '✅ ¡Copiado! Pegá en Excel.';
+                    setTimeout(() => {{ document.getElementById('msg').innerText = ''; }}, 3000);
+                }});
             }};
             </script>
-        """, height=60):
-            st.toast("✅ ¡Reporte copiado! Dale Ctrl+V en Excel.", icon="📋")
+        """, height=80)
     else: st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
