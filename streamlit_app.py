@@ -44,32 +44,36 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- FUNCIÓN DE LOGIN (Control de Acceso) ---
+# --- FUNCIÓN DE LOGIN (Control de Acceso) ---
 def check_password():
     """Devuelve True si el usuario ingresó credenciales válidas."""
     def password_entered():
         if st.session_state["username"] in st.secrets["passwords"] and \
-           st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
+           st.session_state["password"] == st.secrets["password_correct"][st.session_state["username"]]:
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # Limpieza de seguridad
         else:
             st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state:
+    # CAMBIO CLAVE: Si no es True (es False o no existe), mostramos el login
+    if st.session_state.get("password_correct") is not True:
         # Pantalla de Login
         c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
-        with c_l2: st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
-        st.markdown("<h3 style='text-align: center;'>Acceso al Sistema</h3>", unsafe_allow_html=True)
-        with st.form("login_form"):
-            st.text_input("Usuario", key="username")
-            st.text_input("Contraseña", type="password", key="password")
-            st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
+        with c_l2: 
+            st.image("img/WL_Hopper_Logo_-_nspc.png", use_container_width=True)
+            st.markdown("<h3 style='text-align: center;'>Acceso al Sistema</h3>", unsafe_allow_html=True)
+            with st.form("login_form"):
+                st.text_input("Usuario", key="username")
+                st.text_input("Contraseña", type="password", key="password")
+                st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
         
-        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+        # Mostrar error si las credenciales fallaron
+        if st.session_state.get("password_correct") == False:
             st.error("😕 Usuario o contraseña incorrectos")
         
-        return False  # <--- CORREGIDO: Ahora bloquea correctamente el acceso
+        return False  # Bloquea el resto de la app
         
-    return True
+    return True # Solo llega acá si password_correct es True
 
 # --- INICIO DE LA APLICACIÓN (Si el login es exitoso) ---
 if check_password():
