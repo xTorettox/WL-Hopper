@@ -12,32 +12,27 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
 
 # --- ESTILOS CSS ---
-# --- ESTILOS CSS (Nivelación Atómica) ---
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* Terminal alineada a la base del botón 'Comenzar' */
-    .terminal-box {{
-        background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
-        font-size: 13px; padding: 15px; border-radius: 5px; height: 522px; 
-        overflow-y: auto; border: 1px solid #444;
+    /* Botón principal */
+    div.stButton > button:first-child {{ 
+        background-color: {VERDE_SULLAIR} !important; 
+        color: white !important; 
+        font-weight: bold; 
     }}
-    
-    /* Forzar a las columnas a ser contenedores relativos */
-    [data-testid="stColumn"] {{
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
+    /* Terminal con altura fija para nivelar con la izquierda */
+    .terminal-box {{ 
+        background-color: #212529; 
+        color: #f8f9fa; 
+        font-family: 'Consolas', monospace; 
+        font-size: 13px; 
+        padding: 15px; 
+        border-radius: 5px; 
+        height: 522px; 
+        overflow-y: auto; 
+        border: 1px solid #444; 
     }}
-
-    /* Estilo para que el botón deshabilitado no flote */
-    .stDownloadButton button {{
-        margin-bottom: 0px !important;
-        height: 45px !important;
-    }}
-
-    div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
     .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
     </style>
@@ -137,48 +132,32 @@ dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # Usamos un div con padding:0 para que el iframe se pegue al piso
+        # El botón de copia con el feedback adentro, pero sin capas raras de CSS
         components.html(f"""
-            <div style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
-                <button id="cBtn" style="
-                    width: 100%; 
-                    height: 45px; 
-                    background-color: {VERDE_SULLAIR}; 
-                    color: white; 
-                    border: none; 
-                    border-radius: 4px; 
-                    font-weight: bold; 
-                    cursor: pointer; 
-                    font-family: sans-serif;
-                    box-sizing: border-box;
-                ">
-                    📋 Copiar Reporte para Excel
-                </button>
-                <textarea id="hiddenTable" style="position:fixed; top:-1000px; opacity:0;">{st.session_state.html_excel}</textarea>
-            </div>
+            <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">
+                📋 Copiar Reporte para Excel
+            </button>
+            <textarea id="hT" style="display:none;">{st.session_state.html_excel}</textarea>
             <script>
             document.getElementById('cBtn').onclick = function() {{
                 const btn = this;
-                const html = document.getElementById('hiddenTable').value;
-                const blob = new Blob([html], {{ type: 'text/html' }});
+                const blob = new Blob([document.getElementById('hT').value], {{ type: 'text/html' }});
                 const data = [new ClipboardItem({{ 'text/html': blob }})];
                 navigator.clipboard.write(data).then(() => {{
-                    const originalText = btn.innerHTML;
-                    btn.innerHTML = "✅ ¡REPORTE COPIADO!";
+                    btn.innerHTML = "✅ ¡COPIADO!";
                     btn.style.backgroundColor = "#28a745";
-                    setTimeout(() => {{
-                        btn.innerHTML = originalText;
-                        btn.style.backgroundColor = "{VERDE_SULLAIR}";
+                    setTimeout(() => {{ 
+                        btn.innerHTML = "📋 Copiar Reporte para Excel"; 
+                        btn.style.backgroundColor = "{VERDE_SULLAIR}"; 
                     }}, 2000);
                 }});
             }};
             </script>
-        """, height=45) 
+        """, height=45)
     else:
-        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True, key="btn_copy_off")
+        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
-    # Definimos z_buf siempre para que Pylance no llore
     z_buf = BytesIO()
     if st.session_state.proceso_completo and st.session_state.hay_archivos:
         with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
@@ -190,8 +169,7 @@ with dcol2:
         data=z_buf.getvalue(), 
         file_name="certificados.zip", 
         disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
-        use_container_width=True,
-        key="btn_zip"
+        use_container_width=True
     )
 
 # --- CAPTIONS ---
