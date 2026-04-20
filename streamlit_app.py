@@ -131,7 +131,7 @@ if not st.session_state.proceso_completo:
 else:
     # Metemos AMBOS botones en un solo componente HTML. Imposible que se desnivelen.
     btn_zip_html = f'<a href="data:application/zip;base64,{st.session_state.zip_base64}" download="certificados.zip" style="text-decoration:none; width:100%;">' \
-                   f'<button style="width:100%; height:45px; background-color:white; color:black; border:1px solid #ccc; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">📂 Descargar Archivo ZIP</button></a>' \
+                   f'<button style="width:100%; height:52px; background-color:white; color:black; border:1px solid #ccc; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">📂 Descargar Archivo ZIP</button></a>' \
                    if st.session_state.hay_archivos else \
                    f'<button disabled style="width:100%; height:45px; background-color:#f0f2f6; color:#aaa; border:none; border-radius:4px; font-weight:bold; font-family:sans-serif;">📂 Descargar Archivo ZIP</button>'
 
@@ -153,7 +153,7 @@ else:
             const blob = new Blob([document.getElementById('hT').value], {{ type: 'text/html' }});
             const data = [new ClipboardItem({{ 'text/html': blob }})];
             navigator.clipboard.write(data).then(() => {{
-                btn.innerHTML = "✅ ¡COPIADO!";
+                btn.innerHTML = "✅ ¡COPIADO! Podés pegar en Excel con CTRL+V";
                 btn.style.backgroundColor = "#28a745";
                 setTimeout(() => {{ 
                     btn.innerHTML = "📋 Copiar Reporte para Excel"; 
