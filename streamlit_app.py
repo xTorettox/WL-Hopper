@@ -7,7 +7,6 @@ from io import BytesIO
 from scraper import WLHopperBot
 from utils import extraer_internos, asegurar_carpeta
 import streamlit.components.v1 as components
-import time
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
@@ -28,7 +27,6 @@ if "log_history" not in st.session_state: st.session_state.log_history = []
 if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
 if "html_excel" not in st.session_state: st.session_state.html_excel = ""
 if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
-if "copy_trigger" not in st.session_state: st.session_state.copy_trigger = 0
 
 # --- LAYOUT ---
 col_left, col_right = st.columns([1, 1.2], gap="large")
@@ -75,6 +73,9 @@ if btn_run:
         
         bot = WLHopperBot(headless=True)
         if bot.iniciar(user, pw):
+            st.session_state.log_history.append("🔐 Login exitoso.")
+            render_terminal()
+            
             lista = extraer_internos(texto_internos)
             res_lista = []
             for int_id in lista:
@@ -87,11 +88,12 @@ if btn_run:
                 render_terminal()
 
             bot.cerrar()
+            st.session_state.log_history.append("🔓 Sesión cerrada correctamente.")
             st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
             st.session_state.proceso_completo = True
             st.session_state.hay_archivos = len(os.listdir(ruta_temp)) > 0 if os.path.exists(ruta_temp) else False
 
-            # HTML con corrección de Vencido -> Certificado NO
+            # Generación de HTML
             html = """<style>table { border-collapse: collapse; } td { white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; } th { white-space: nowrap; text-align: center; padding: 10px 20px; }</style>
             <table width="100%" border="1" style="font-family: Calibri;">
             <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>DETALLE</th></tr>"""
@@ -105,7 +107,7 @@ if btn_run:
                 html += f'<td>{r["insp"]}</td><td>{r["venc"]}</td><td>{cert_val}</td><td>{r["inf"]}</td>'
                 html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r["det"]}</td></tr>'
             html += "</table>"
-            st.session_state.html_excel = html.replace("\n", "").replace("'", "\\'")
+            st.session_state.html_excel = html.replace("\n", "")
             st.rerun()
 
 # --- BOTONES DE ACCIÓN ---
@@ -113,26 +115,17 @@ st.divider()
 dcol1, dcol2 = st.columns(2)
 
 with dcol1:
-    if st.session_state.proceso_completo:
-        # BOTÓN DE COPIA CON TRIGGER DE SESIÓN
-        val = components.html(f"""
-            <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-family:sans-serif;">📋 Copiar Reporte para Excel</button>
+    # Volvemos a la versión original de Streamlit que no falla
+    if st.button("📋 Copiar Reporte para Excel", disabled=not st.session_state.proceso_completo, use_container_width=True):
+        # Usamos components.html solo para la ejecución del copiado al clickear
+        components.html(f"""
             <script>
-            document.getElementById('cBtn').onclick = function() {{
-                const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
-                const item = new ClipboardItem({{ 'text/html': blob }});
-                navigator.clipboard.write([item]).then(() => {{
-                    window.parent.postMessage({{type: 'streamlit:set_component_value', value: Math.random()}}, '*');
-                }});
-            }};
+            const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
+            const item = new ClipboardItem({{ 'text/html': blob }});
+            navigator.clipboard.write([item]);
             </script>
-        """, height=50)
-
-        # Si el valor de val cambia (porque hicimos clic), disparamos el toast
-        if val:
-            st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
-    else:
-        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
+        """, height=0)
+        st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
 
 with dcol2:
     z_buf = BytesIO()
