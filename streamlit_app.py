@@ -11,6 +11,38 @@ import streamlit.components.v1 as components
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
 
+    # --- ESTILOS CSS ---
+    
+    VERDE_SULLAIR = "#008657"
+    st.markdown(f"""
+        <style>
+        /* Terminal alineada a la base del botón 'Comenzar' */
+        .terminal-box {{
+            background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
+            font-size: 13px; padding: 15px; border-radius: 5px; height: 522px; 
+            overflow-y: auto; border: 1px solid #444;
+        }}
+        
+        /* Forzar a las columnas a ser contenedores relativos */
+        [data-testid="stColumn"] {{
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }}
+    
+        /* Estilo para que el botón deshabilitado no flote */
+        .stDownloadButton button {{
+            margin-bottom: 0px !important;
+            height: 45px !important;
+        }}
+    
+        div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
+        .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
+        .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
+        </style>
+        """, unsafe_allow_html=True)
+
 # --- FUNCIÓN DE LOGIN (Control de Acceso) ---
 def check_password():
     """Devuelve True si el usuario ingresó credenciales válidas."""
@@ -43,38 +75,6 @@ if check_password():
     
     # Botón para cerrar sesión en la sidebar
     st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.clear())
-
-    # --- ESTILOS CSS ---
-    
-    VERDE_SULLAIR = "#008657"
-    st.markdown(f"""
-        <style>
-        /* Terminal alineada a la base del botón 'Comenzar' */
-        .terminal-box {{
-            background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
-            font-size: 13px; padding: 15px; border-radius: 5px; height: 522px; 
-            overflow-y: auto; border: 1px solid #444;
-        }}
-        
-        /* Forzar a las columnas a ser contenedores relativos */
-        [data-testid="stColumn"] {{
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-        }}
-    
-        /* Estilo para que el botón deshabilitado no flote */
-        .stDownloadButton button {{
-            margin-bottom: 0px !important;
-            height: 45px !important;
-        }}
-    
-        div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
-        .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
-        .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
-        </style>
-        """, unsafe_allow_html=True)
     
     # --- INICIALIZACIÓN ---
     if "log_history" not in st.session_state: st.session_state.log_history = []
