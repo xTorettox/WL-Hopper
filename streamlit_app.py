@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
 
-# --- ESTILOS CSS REVISADOS (Sin padding extra ni checks verdes) ---
+# --- ESTILOS CSS ---
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
@@ -61,8 +61,8 @@ with col_right:
 
 # --- LÓGICA DE PROCESO ---
 if btn_run:
-    # SCROLL ARRIBA (Forzado por JS directo al body del frame)
-    components.html("<script>window.parent.document.body.parentElement.scrollTo({top: 0, behavior: 'smooth'});</script>", height=0)
+    # Scroll arriba al comenzar
+    components.html("<script>window.parent.scrollTo({top: 0, behavior: 'smooth'});</script>", height=0)
     
     if not user or not pw: st.error("Faltan credenciales.")
     else:
@@ -71,7 +71,7 @@ if btn_run:
         asegurar_carpeta(ruta_temp)
 
         st.session_state.proceso_completo = False
-        st.session_state.log_history = ["🧹 Carpeta temporal limpia.", "Iniciando conexión..."]
+        st.session_state.log_history = ["Iniciando conexión con Worklift..."] # Removido aviso de carpeta limpia
         render_terminal()
         
         bot = WLHopperBot(headless=True)
@@ -108,8 +108,8 @@ if btn_run:
             html += "</table>"
             st.session_state.html_excel = html.replace("\n", "").replace("'", "\\'")
             
-            # SCROLL ABAJO (Forzado al final del proceso)
-            components.html("<script>setTimeout(() => { window.parent.document.body.parentElement.scrollTo({top: 2000, behavior: 'smooth'}); }, 500);</script>", height=0)
+            # Scroll abajo al finalizar
+            components.html("<script>setTimeout(() => { window.parent.scrollTo({top: 1500, behavior: 'smooth'}); }, 500);</script>", height=0)
             st.rerun()
 
 # --- BOTONES DE ACCIÓN ---
@@ -118,26 +118,26 @@ dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # El botón de copiado ahora maneja su propio mensaje de éxito internamente en el componente
-        components.html(f"""
-            <div id="msg" style="color: #008657; font-family: sans-serif; font-size: 12px; margin-bottom: 5px; height: 15px; font-weight: bold; text-align: center;"></div>
+        # BOTÓN DE COPIA: Detecta el mensaje del JS para disparar el Toast de forma limpia
+        if components.html(f"""
             <button id="cBtn" style="width:100%; height:45px; background-color:{VERDE_SULLAIR}; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">📋 Copiar Reporte para Excel</button>
             <script>
             document.getElementById('cBtn').onclick = function() {{
-                const html = '{st.session_state.html_excel}';
-                const blob = new Blob([html], {{ type: 'text/html' }});
-                const data = [new ClipboardItem({{ 'text/html': blob }})];
-                navigator.clipboard.write(data).then(() => {{
-                    document.getElementById('msg').innerText = '✅ ¡Copiado! Pegá en Excel.';
-                    setTimeout(() => {{ document.getElementById('msg').innerText = ''; }}, 3000);
+                const blob = new Blob(['{st.session_state.html_excel}'], {{ type: 'text/html' }});
+                const item = new ClipboardItem({{ 'text/html': blob }});
+                navigator.clipboard.write([item]).then(() => {{
+                    window.parent.postMessage({{type: 'streamlit:set_component_value', value: Math.random()}}, '*');
                 }});
             }};
             </script>
-        """, height=80)
-    else: st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
+        """, height=50):
+             st.toast("✅ ¡Reporte copiado! Ya podés pegarlo en Excel.", icon="📋")
+    else:
+        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
 
 with dcol2:
     z_buf = BytesIO()
+    # Solo intentamos crear el ZIP si el proceso terminó y efectivamente hay archivos
     if st.session_state.proceso_completo and st.session_state.hay_archivos:
         with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
             for r, d, files in os.walk("descargas_temp"):
@@ -146,5 +146,7 @@ with dcol2:
     st.download_button("📂 Descargar Archivo ZIP", data=z_buf.getvalue(), file_name="certificados.zip", 
                        disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), use_container_width=True)
 
+# --- CAPTIONS FINALES ---
+st.divider()
 st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
 st.caption("Consultas a: fcendra@sullair.com.ar")
