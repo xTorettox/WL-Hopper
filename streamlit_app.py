@@ -12,31 +12,29 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
 
 # --- ESTILOS CSS ---
+# --- ESTILOS CSS (Nivelación Atómica) ---
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* 1. Terminal alineada a la base del botón 'Comenzar' */
+    /* Terminal alineada a la base del botón 'Comenzar' */
     .terminal-box {{
-        background-color: #212529;
-        color: #f8f9fa;
-        font-family: 'Consolas', monospace;
-        font-size: 13px;
-        padding: 15px;
-        border-radius: 5px;
-        height: 522px; /* Valor ajustado para nivelar bases */
-        overflow-y: auto;
-        border: 1px solid #444;
+        background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
+        font-size: 13px; padding: 15px; border-radius: 5px; height: 522px; 
+        overflow-y: auto; border: 1px solid #444;
     }}
     
-    /* 2. Forzar alineación de botones de acción */
+    /* Forzar a las columnas a ser contenedores relativos */
     [data-testid="stColumn"] {{
+        position: relative;
         display: flex;
-        align-items: flex-end;
+        flex-direction: column;
+        justify-content: flex-end;
     }}
-    
-    /* Compensar el salto del botón nativo de Streamlit */
-    div.stDownloadButton {{
-        margin-bottom: 2px; 
+
+    /* Estilo para que el botón deshabilitado no flote */
+    .stDownloadButton button {{
+        margin-bottom: 0px !important;
+        height: 45px !important;
     }}
 
     div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
@@ -139,9 +137,9 @@ dcol1, dcol2 = st.columns(2)
 
 with dcol1:
     if st.session_state.proceso_completo:
-        # Altura de 45px exacta para nivelar con dcol2
+        # Usamos un div con padding:0 para que el iframe se pegue al piso
         components.html(f"""
-            <div style="margin:0; padding:0;">
+            <div style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
                 <button id="cBtn" style="
                     width: 100%; 
                     height: 45px; 
@@ -152,8 +150,7 @@ with dcol1:
                     font-weight: bold; 
                     cursor: pointer; 
                     font-family: sans-serif;
-                    line-height: 45px;
-                    padding: 0;
+                    box-sizing: border-box;
                 ">
                     📋 Copiar Reporte para Excel
                 </button>
@@ -178,27 +175,23 @@ with dcol1:
             </script>
         """, height=45) 
     else:
-        # Botón deshabilitado nativo de Streamlit
-        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True)
+        st.button("📋 Copiar Reporte para Excel", disabled=True, use_container_width=True, key="btn_copy_off")
 
 with dcol2:
-    # --- FIX: Definimos z_buf siempre para evitar el error de Pylance ---
+    # Definimos z_buf siempre para que Pylance no llore
     z_buf = BytesIO()
-    
-    # Solo llenamos el buffer si hay archivos reales
     if st.session_state.proceso_completo and st.session_state.hay_archivos:
         with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
             for r, d, files in os.walk("descargas_temp"):
-                for f in files:
-                    zf.write(os.path.join(r, f), f)
+                for f in files: zf.write(os.path.join(r, f), f)
     
-    # El botón ahora siempre tiene una variable válida en 'data'
     st.download_button(
         "📂 Descargar Archivo ZIP", 
         data=z_buf.getvalue(), 
         file_name="certificados.zip", 
         disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
-        use_container_width=True
+        use_container_width=True,
+        key="btn_zip"
     )
 
 # --- CAPTIONS ---
