@@ -98,12 +98,12 @@ if check_password():
                 st.write("🤖") # Placeholder
         with c2:
             st.markdown("""
-            **WL Hopper** es una solución de automatización diseñada para optimizar la gestión de seguridad operativa en **Sullair Argentina**.
+            **WL Hopper** es una solución de automatización diseñada para optimizar la descarga de certificados en PDF desde el sitio de **Worklift**.
             
-            Inspirada en la pionera **Grace Hopper**, esta herramienta utiliza bots de navegación e inteligencia artificial para centralizar la descarga de certificados y validar vencimientos de internos en tiempo real.
+            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta utiliza bots de navegación y un poquitito de inteligencia artificial para centralizar la descarga de certificados y validar vencimientos de internos de forma masiva.
             """)
         
-        st.info("🚀 **Misión:** Garantizar documentación vigente, facilitando el trabajo de los equipos de Oil & Gas y Servicios.")
+        st.info("🚀 **Misión:** Acelerar la tarea de descarga y/o recuperación de información desde el sitio web de Worklift.")
         
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
@@ -116,7 +116,7 @@ if check_password():
         st.button("Cerrar Sesión", on_click=lambda: st.session_state.clear(), use_container_width=True)
         
         # Botón 2: Acerca de
-        if st.button("ℹ️ Acerca del Proyecto", use_container_width=True):
+        if st.button("Acerca del Proyecto", use_container_width=True):
             mostrar_about()
     
     # --- INICIALIZACIÓN ---
