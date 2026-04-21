@@ -92,7 +92,7 @@ if check_password():
 
     # Botón About
     if st.sidebar.button("ℹ️ Acerca del Proyecto", use_container_width=True):
-    mostrar_about()
+        mostrar_about()
 
     # --- FUNCIÓN DEL MODAL ACERCA DE ---
     @st.dialog("Acerca de WL Hopper")
