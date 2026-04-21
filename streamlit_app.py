@@ -94,7 +94,7 @@ if check_password():
             <style>
             /* Seleccionamos el contenido del modal */
             div[data-testid="stDialog"] div[data-testid="stVerticalBlock"] > div:first-child {{
-                background-image: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)), url("img/robot_diapos.png");
+                background-image: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)), url("https://github.com/xTorettox/WL-Hopper/blob/4e39e9b26d0676cd1841dddcfe5c3a4b027cce69/img/robot_diapos.png");
                 background-size: cover;
                 background-position: center;
                 border-radius: 10px;
