@@ -93,7 +93,7 @@ if check_password():
         with c1:
             
             try:
-                st.image("img/robot_diapos.png", use_container_width=True)
+                st.image("img/robot_diapos.png")
             except:
                 st.write("🤖") # Placeholder
         with c2:
