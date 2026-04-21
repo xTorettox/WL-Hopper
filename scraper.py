@@ -57,8 +57,16 @@ class WLHopperBot:
             self.page.locator('input[type="email"]').fill(usuario)
             self.page.locator('input[type="password"]').fill(clave)
             self.page.click('button:has-text("Ingresar")')
-            self.page.wait_for_load_state("networkidle")
-            return True
+            
+            # --- VALIDACIÓN REAL DE LOGIN ---
+            # Esperamos a ver el buscador de equipos que solo aparece si el login fue exitoso.
+            try:
+                # Si en 12 segundos no aparece el buscador, devolvemos False.
+                self.page.wait_for_selector('input[placeholder="Buscar"]', timeout=12000)
+                return True
+            except:
+                return False
+                
         except Exception as e:
             print(f"Error en Login: {e}")
             return False
