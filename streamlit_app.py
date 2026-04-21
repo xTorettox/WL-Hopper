@@ -98,7 +98,7 @@ if check_password():
                 st.write("🤖") # Placeholder
         with c2:
             st.markdown("""
-            **WL Hopper** es una solución de automatización diseñada para optimizar la descarga de certificados en PDF desde el sitio de **Worklift**.
+            **WL Hopper** es una app diseñada para optimizar la descarga de certificados en PDF desde el sitio de **Worklift**.
             
             Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para la descarga masiva de certificados.
             """)
