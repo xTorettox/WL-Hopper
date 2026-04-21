@@ -73,7 +73,7 @@ def check_password():
             
             with st.form("login_form"):
                 st.text_input("Usuario", key="username", help="Acá podés introducir tu usuario de Worklift")
-                st.text_input("Contraseña", type="password", key="password", help="Acá va tu clave de Worklift"))
+                st.text_input("Contraseña", type="password", key="password", help="Acá va tu clave de Worklift")
                 st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
             
             # Solo mostramos el error si el usuario ya intentó y falló
