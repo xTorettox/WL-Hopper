@@ -44,7 +44,6 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- FUNCIÓN DE LOGIN (Control de Acceso) ---
-# --- FUNCIÓN DE LOGIN (Control de Acceso) ---
 def check_password():
     """Devuelve True si el usuario ingresó credenciales válidas."""
     def password_entered():
@@ -90,6 +89,32 @@ if check_password():
     
     # Botón para cerrar sesión en la sidebar
     st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.clear())
+
+    # Botón About
+    if st.sidebar.button("ℹ️ Acerca del Proyecto", use_container_width=True):
+    mostrar_about()
+
+    # --- FUNCIÓN DEL MODAL ACERCA DE ---
+    @st.dialog("Acerca de WL Hopper")
+    def mostrar_about():
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            # Aquí irá el "Robot de las diapos" cuando lo tengamos
+            try:
+                st.image("img/robot_diapos.png", use_container_width=True)
+            except:
+                st.write("🤖") # Placeholder
+        with c2:
+            st.markdown("""
+            **WL Hopper** es una solución de automatización diseñada para optimizar la gestión de seguridad operativa en **Sullair Argentina**.
+            
+            Inspirada en la pionera **Grace Hopper**, esta herramienta utiliza bots de navegación e inteligencia artificial para centralizar la descarga de certificados y validar vencimientos de internos en tiempo real.
+            """)
+        
+        st.info("🚀 **Misión:** Garantizar documentación vigente, facilitando el trabajo de los equipos de Oil & Gas y Servicios.")
+        
+        st.divider()
+        st.caption("Desarrollado por Fede García Cendra - 2026")
     
     # --- INICIALIZACIÓN ---
     if "log_history" not in st.session_state: st.session_state.log_history = []
