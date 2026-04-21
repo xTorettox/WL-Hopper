@@ -72,8 +72,8 @@ def check_password():
             st.markdown("<h4 style='text-align: center;'>Acceso al Sistema</h4>", unsafe_allow_html=True)
             
             with st.form("login_form"):
-                st.text_input("Usuario", key="username")
-                st.text_input("Contraseña", type="password", key="password")
+                st.text_input("Usuario", key="username", help="Acá podés introducir tu usuario de Worklift")
+                st.text_input("Contraseña", type="password", key="password", help="Acá va tu clave de Worklift"))
                 st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
             
             # Solo mostramos el error si el usuario ya intentó y falló
