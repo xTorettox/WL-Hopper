@@ -88,34 +88,34 @@ if check_password():
 
     # --- FUNCIÓN DEL MODAL ACERCA DE ---
     @st.dialog("Acerca de WL Hopper")
-def mostrar_about():
-    # HACK CSS: Inyectamos el fondo directamente al contenedor del diálogo
-    st.markdown(f"""
-        <style>
-        /* Seleccionamos el contenido del modal */
-        div[data-testid="stDialog"] div[data-testid="stVerticalBlock"] > div:first-child {{
-            background-image: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)), url("app/static/img/robot_diapos.png");
-            background-size: cover;
-            background-position: center;
-            border-radius: 10px;
-            padding: 20px;
-        }}
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Texto con estilo para que resalte sobre el fondo
-    st.markdown("""
-        <div style="background-color: rgba(255, 255, 255, 0.6); padding: 20px; border-radius: 10px;">
-            <h4 style="color: #008657;">Mística y Automatización</h4>
-            <p><b>WL Hopper</b> es una solución diseñada para optimizar la gestión de seguridad operativa en <b>Sullair Argentina</b>.</p>
-            <p>Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta utiliza bots de navegación y un poquitito de inteligencia artificial para centralizar la descarga de certificados y validar vencimientos de internos de forma masiva.</p>
-        </div>
-    """, unsafe_allow_html=True)
+    def mostrar_about():
+        # HACK CSS: Inyectamos el fondo directamente al contenedor del diálogo
+        st.markdown(f"""
+            <style>
+            /* Seleccionamos el contenido del modal */
+            div[data-testid="stDialog"] div[data-testid="stVerticalBlock"] > div:first-child {{
+                background-image: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)), url("app/static/img/robot_diapos.png");
+                background-size: cover;
+                background-position: center;
+                border-radius: 10px;
+                padding: 20px;
+            }}
+            </style>
+        """, unsafe_allow_html=True)
     
-    st.info("🚀 **Misión:** Acelerar la tarea de descarga y/o recuperación de información desde el sitio web de Worklift.")
-    
-    st.divider()
-    st.caption("Desarrollado por Fede García Cendra - 2026")
+        # Texto con estilo para que resalte sobre el fondo
+        st.markdown("""
+            <div style="background-color: rgba(255, 255, 255, 0.6); padding: 20px; border-radius: 10px;">
+                <h4 style="color: #008657;">Mística y Automatización</h4>
+                <p><b>WL Hopper</b> es una solución diseñada para optimizar la gestión de seguridad operativa en <b>Sullair Argentina</b>.</p>
+                <p>Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta utiliza bots de navegación y un poquitito de inteligencia artificial para centralizar la descarga de certificados y validar vencimientos de internos de forma masiva.</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.info("🚀 **Misión:** Acelerar la tarea de descarga y/o recuperación de información desde el sitio web de Worklift.")
+        
+        st.divider()
+        st.caption("Desarrollado por Fede García Cendra - 2026")
     
     # --- SIDEBAR (Menú Lateral) ---
     with st.sidebar:
