@@ -72,8 +72,8 @@ def check_password():
             st.markdown("<h4 style='text-align: center;'>Acceso al Sistema</h4>", unsafe_allow_html=True)
             
             with st.form("login_form"):
-                st.text_input("Usuario", key="username", help="Acá podés introducir tu usuario de Worklift")
-                st.text_input("Contraseña", type="password", key="password", help="Acá va tu clave de Worklift")
+                st.text_input("Usuario", key="username")
+                st.text_input("Contraseña", type="password", key="password")
                 st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
             
             # Solo mostramos el error si el usuario ya intentó y falló
@@ -108,14 +108,14 @@ if check_password():
         st.markdown('</div>', unsafe_allow_html=True)
         
         with st.container(border=True):
-            user = st.text_input("Usuario (Email)", key="user_email")
-            pw = st.text_input("Contraseña", type="password", key="user_pw")
+            user = st.text_input("Usuario (Email)", key="user_email", help="Acá podés introducir tu usuario de Worklift")
+            pw = st.text_input("Contraseña", type="password", key="user_pw", help="Acá va tu clave de Worklift")
             c1, c2 = st.columns(2)
-            bajar_cert = c1.checkbox("Certificados", value=True)
-            bajar_inf = c2.checkbox("Informes Técnicos", value=False)
+            bajar_cert = c1.checkbox("Descargar Certificados", value=True)
+            bajar_inf = c2.checkbox("Descargar Informes de Inspección", value=False)
     
         st.markdown("##### Listado de Internos")
-        texto_internos = st.text_area("Pegá aquí:", height=115, placeholder="E040230, 3797...")
+        texto_internos = st.text_area("Pegá acá:", height=115, placeholder="E040230, 3797...", help="En este cuadro de texto podés pegar tu listado de internos. Acepta texto simple con cualquier separador, listado pegado de Excel, y puede reconocer internos dentro de cualquier texto mientras no estén pegados.")
         btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
     
     with col_right:
