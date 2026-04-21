@@ -103,7 +103,7 @@ if check_password():
             Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para la descarga masiva de certificados.
             """)
         
-        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes así como la recuperación de información desde el sitio web de Worklift.")
+        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de el sitio web de Worklift.")
         
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
