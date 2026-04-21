@@ -85,10 +85,6 @@ def check_password():
 
 # --- FLUJO PRINCIPAL ---
 if check_password():
-    # Solo se ejecuta si el login es exitoso
-    
-    # Botón para cerrar sesión en la sidebar
-    st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.clear())
 
     # --- FUNCIÓN DEL MODAL ACERCA DE ---
     @st.dialog("Acerca de WL Hopper")
@@ -112,10 +108,16 @@ if check_password():
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
 
-    # Botón About
-    if st.sidebar.button("Acerca de...", use_container_width=True):
+    # --- SIDEBAR (Menú Lateral) ---
+    with st.sidebar:
+    st.markdown("### 🛠️ Opciones")
+    
+    # Botón 1: Cerrar Sesión
+    st.button("Cerrar Sesión", on_click=lambda: st.session_state.clear(), use_container_width=True)
+    
+    # Botón 2: Acerca de
+    if st.button("ℹ️ Acerca del Proyecto", use_container_width=True):
         mostrar_about()
-
     
     # --- INICIALIZACIÓN ---
     if "log_history" not in st.session_state: st.session_state.log_history = []
