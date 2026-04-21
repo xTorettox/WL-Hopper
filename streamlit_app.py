@@ -100,10 +100,10 @@ if check_password():
             st.markdown("""
             **WL Hopper** es una app diseñada para optimizar la descarga de certificados en PDF desde el sitio de **Worklift**.
             
-            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para la descarga masiva de certificados.
+            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para descargar certificados.
             """)
         
-        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de el sitio web de Worklift.")
+        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de nuestros equipos desde el sitio web de Worklift.")
         
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
