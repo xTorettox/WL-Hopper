@@ -100,7 +100,7 @@ if check_password():
             st.markdown("""
             **WL Hopper** es una solución de automatización diseñada para optimizar la descarga de certificados en PDF desde el sitio de **Worklift**.
             
-            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta utiliza bots de navegación y un poquitito de inteligencia artificial para centralizar la descarga de certificados y validar vencimientos de internos de forma masiva.
+            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para la descarga masiva de certificados.
             """)
         
         st.info("🚀 **Misión:** Acelerar la tarea de descarga y/o recuperación de información desde el sitio web de Worklift.")
