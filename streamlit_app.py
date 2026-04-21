@@ -178,7 +178,12 @@ if check_password():
                 html += "</table>"
                 st.session_state.html_excel = html.replace("\n", "")
                 st.rerun()
-    
+            else:
+                # --- Manejo del error de login ---
+                st.session_state.log_history.append("❌ ERROR: Credenciales de Worklift incorrectas.")
+                render_terminal()
+                st.error("No se pudo iniciar sesión. Verificá tu usuario y contraseña de Worklift.")
+                
     # --- BOTONES DE ACCIÓN ---
     st.divider()
     dcol1, dcol2 = st.columns(2)
