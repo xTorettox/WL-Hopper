@@ -94,7 +94,7 @@ if check_password():
             <style>
             /* Seleccionamos el contenido del modal */
             div[data-testid="stDialog"] div[data-testid="stVerticalBlock"] > div:first-child {{
-                background-image: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)), url("app/static/img/robot_diapos.png");
+                background-image: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)), url("img/robot_diapos.png");
                 background-size: cover;
                 background-position: center;
                 border-radius: 10px;
