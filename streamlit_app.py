@@ -110,14 +110,14 @@ if check_password():
 
     # --- SIDEBAR (Menú Lateral) ---
     with st.sidebar:
-    st.markdown("### 🛠️ Opciones")
-    
-    # Botón 1: Cerrar Sesión
-    st.button("Cerrar Sesión", on_click=lambda: st.session_state.clear(), use_container_width=True)
-    
-    # Botón 2: Acerca de
-    if st.button("ℹ️ Acerca del Proyecto", use_container_width=True):
-        mostrar_about()
+        st.markdown("### 🛠️ Opciones")
+        
+        # Botón 1: Cerrar Sesión
+        st.button("Cerrar Sesión", on_click=lambda: st.session_state.clear(), use_container_width=True)
+        
+        # Botón 2: Acerca de
+        if st.button("ℹ️ Acerca del Proyecto", use_container_width=True):
+            mostrar_about()
     
     # --- INICIALIZACIÓN ---
     if "log_history" not in st.session_state: st.session_state.log_history = []
