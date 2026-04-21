@@ -90,16 +90,12 @@ if check_password():
     # Botón para cerrar sesión en la sidebar
     st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.clear())
 
-    # Botón About
-    if st.sidebar.button("ℹ️ Acerca del Proyecto", use_container_width=True):
-        mostrar_about()
-
     # --- FUNCIÓN DEL MODAL ACERCA DE ---
     @st.dialog("Acerca de WL Hopper")
     def mostrar_about():
         c1, c2 = st.columns([1, 2])
         with c1:
-            # Aquí irá el "Robot de las diapos" cuando lo tengamos
+            
             try:
                 st.image("img/robot_diapos.png", use_container_width=True)
             except:
@@ -115,6 +111,11 @@ if check_password():
         
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
+
+    # Botón About
+    if st.sidebar.button("Acerca de...", use_container_width=True):
+        mostrar_about()
+
     
     # --- INICIALIZACIÓN ---
     if "log_history" not in st.session_state: st.session_state.log_history = []
