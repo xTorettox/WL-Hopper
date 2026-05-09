@@ -3,7 +3,8 @@ import requests
 import logging
 from playwright.sync_api import sync_playwright
 from datetime import datetime
-from utils import analizar_fecha
+from utils import analizar_fecha, calcular_vencimiento_semestral
+from gemini_utils import analizar_informe_gemini
 
 class WLHopperBot:
     def __init__(self, headless=True):
@@ -106,24 +107,46 @@ class WLHopperBot:
                     "log": ["❌ Interno no encontrado en la tabla."]
                 }
 
-            # Ordenamos: el más reciente primero
-            candidatos.sort(key=lambda x: datetime.strptime(x["venc"], "%d/%m/%Y"), reverse=True)
+            # Ordenamos: el más reciente primero, basándonos en la fecha de inspección
+            def parse_date(d_str):
+                try:
+                    return datetime.strptime(d_str, "%d/%m/%Y")
+                except:
+                    return datetime.min
+            
+            candidatos.sort(key=lambda x: parse_date(x["insp"]), reverse=True)
             fila_reciente = candidatos[0]
             log_pasos = [f"✅ Hallado: {interno}", f"📅 Última Insp: {fila_reciente['insp']}"]
             
             # --- AUDITORÍA DE PDFS ---
             mejor_cert = None
-            for cand in candidatos:
-                cand["fila_obj"].scroll_into_view_if_needed()
-                cand["menu"].click()
-                self.page.wait_for_selector(".dropdown-menu.show", timeout=2000)
-                links = self.page.query_selector_all(".dropdown-menu.show a")
-                tiene_pdf = any("CERTIFICADO" in l.inner_text().upper() for l in links)
-                self.page.keyboard.press("Escape")
-                
-                if tiene_pdf:
-                    mejor_cert = cand
-                    break
+            mejor_inf = None
+            
+            # Buscamos en la fila más reciente (la primera tras ordenar)
+            fila_reciente["fila_obj"].scroll_into_view_if_needed()
+            fila_reciente["menu"].click()
+            self.page.wait_for_selector(".dropdown-menu.show", timeout=2000)
+            links = self.page.query_selector_all(".dropdown-menu.show a")
+            
+            tiene_cert_reciente = any("CERTIFICADO" in l.inner_text().upper() for l in links)
+            tiene_inf_reciente = any("INFORME" in l.inner_text().upper() for l in links)
+            self.page.keyboard.press("Escape")
+
+            if tiene_cert_reciente:
+                mejor_cert = fila_reciente
+            else:
+                # Si la fila más reciente NO tiene certificado, revisamos las anteriores por si hay alguno válido,
+                # pero mantenemos la fila más reciente para los reportes
+                for cand in candidatos[1:]:
+                    cand["fila_obj"].scroll_into_view_if_needed()
+                    cand["menu"].click()
+                    self.page.wait_for_selector(".dropdown-menu.show", timeout=2000)
+                    links_cand = self.page.query_selector_all(".dropdown-menu.show a")
+                    if any("CERTIFICADO" in l.inner_text().upper() for l in links_cand):
+                        mejor_cert = cand
+                        self.page.keyboard.press("Escape")
+                        break
+                    self.page.keyboard.press("Escape")
 
             vencimiento_real = mejor_cert["venc"] if mejor_cert else fila_reciente["venc"]
             estado_f, _, permitir_f = analizar_fecha(vencimiento_real)
@@ -140,6 +163,8 @@ class WLHopperBot:
             links = self.page.query_selector_all(".dropdown-menu.show a")
             cookies = {c['name']: c['value'] for c in self.context.cookies()}
 
+            ruta_informe_descargado = None
+
             for link in links:
                 txt = link.inner_text().upper()
                 url = link.get_attribute("href")
@@ -150,34 +175,53 @@ class WLHopperBot:
 
                 if es_inf: existe_inf = True
 
-                if (es_inf and bajar_informe) or (es_cert and bajar_certificado and permitir_descarga_cert):
+                # Siempre descargamos el informe si NO hay certificado en la fila reciente, para analizarlo
+                forzar_descarga_informe = existe_inf and not tiene_cert_reciente
+
+                if (es_inf and (bajar_informe or forzar_descarga_informe)) or (es_cert and bajar_certificado and permitir_descarga_cert):
                     full_url = url if url.startswith("http") else f"https://certifica.worklift.com.ar{url if url.startswith('/') else '/' + url}"
                     r = requests.get(full_url, cookies=cookies, headers=self.headers, timeout=25)
                     if r.status_code == 200:
                         tipo = "Certificado" if es_cert else "Informe"
                         nombre = f"{interno}_{tipo}_Vence_{vencimiento_real.replace('/','-')}.pdf"
-                        with open(os.path.join(ruta_base, nombre), "wb") as f:
+                        ruta_archivo = os.path.join(ruta_base, nombre)
+                        with open(ruta_archivo, "wb") as f:
                             f.write(r.content)
                         if es_cert: descargo_cert = True
-                        if es_inf: descargo_inf = True
+                        if es_inf: 
+                            descargo_inf = True
+                            ruta_informe_descargado = ruta_archivo
 
             self.page.keyboard.press("Escape")
 
             log_pasos.append(f"📄 Informe: {'Descargado' if descargo_inf else ('No hallado' if not existe_inf else 'Omitido')}")
             log_pasos.append(f"📜 Certificado: {'Descargado' if descargo_cert else 'Omitido o Vencido'}")
 
+            # --- ANÁLISIS GEMINI SI FALTA CERTIFICADO ---
+            observaciones = "-"
+            estado_gemini = None
+            if not tiene_cert_reciente and ruta_informe_descargado:
+                log_pasos.append("🤖 Certificado faltante. Analizando informe con Gemini...")
+                estado_gemini, observaciones = analizar_informe_gemini(ruta_informe_descargado)
+                log_pasos.append(f"🤖 IA Estado: {estado_gemini}")
+                
+            estado_final = estado_f if permitir_descarga_cert else "Vencido"
+            if estado_gemini:
+                estado_final = estado_gemini
+
             return {
-                "status": estado_f if permitir_descarga_cert else "Vencido",
+                "status": estado_final,
                 "venc": vencimiento_real,
                 "insp": fila_reciente["insp"],
                 "cert": "SI" if descargo_cert else "NO",
                 "inf": "SI" if existe_inf else "NO",
-                "det": f"Certificado {estado_f}" if permitir_descarga_cert else f"VENCIDO el {vencimiento_real}",
+                "det": observaciones if observaciones != "-" else (f"Certificado {estado_f}" if permitir_descarga_cert else f"VENCIDO el {vencimiento_real}"),
+                "obs": observaciones,
                 "log": log_pasos
             }
 
         except Exception as e:
-            return {"status": "Error", "det": str(e)[:30], "log": [f"❌ Error: {str(e)[:50]}"]}
+            return {"status": "Error", "det": str(e)[:30], "obs": "-", "log": [f"❌ Error: {str(e)[:50]}"]}
         
     def cerrar(self):
         if self.browser: self.browser.close()
