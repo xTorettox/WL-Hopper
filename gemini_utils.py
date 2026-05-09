@@ -19,6 +19,8 @@ def configurar_gemini():
         return genai.Client(api_key=api_key)
     return None
 
+import time
+
 def analizar_informe_gemini(ruta_pdf):
     client = configurar_gemini()
     if not client:
@@ -52,13 +54,28 @@ def analizar_informe_gemini(ruta_pdf):
         {texto}
         """
         
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt
-        )
+        # Reintentos por límite de cuota (429)
+        max_intentos = 3
+        for intento in range(max_intentos):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt
+                )
+                break  # Éxito
+            except Exception as e:
+                if "429" in str(e) and intento < max_intentos - 1:
+                    time.sleep(5) # Esperamos 5 segundos y reintentamos
+                    continue
+                else:
+                    raise e
+        
         # Limpiar posible markdown
         resp_text = response.text.replace('```json', '').replace('```', '').strip()
         data = json.loads(resp_text)
+        
+        # Esperamos un momento para no agotar la cuota en ráfagas de varias lecturas
+        time.sleep(2)
         
         return data.get('estado', 'DESCONOCIDO'), data.get('observaciones', '-')
         
