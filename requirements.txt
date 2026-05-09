@@ -3,5 +3,6 @@ pandas
 playwright
 requests
 openpyxl
-google-genai
+google-generativeai
 PyMuPDF
+Pillow
