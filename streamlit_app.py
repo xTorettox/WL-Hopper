@@ -334,15 +334,7 @@ if check_password():
     with dcol1:
         if st.session_state.proceso_completo:
             components.html(f"""
-                <style>
-                @media (max-width: 768px) {{
-                    .desktop-only {{ display: none !important; }}
-                }}
-                @media (min-width: 769px) {{
-                    .mobile-only {{ display: none !important; }}
-                }}
-                </style>
-                <div class="desktop-only" style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
+                <div id="desktopBtnContainer" style="display: none; margin:0; padding:0; height: 45px; align-items: center;">
                     <button id="cBtn" style="width: 100%; height: 45px; background-color: {VERDE_SULLAIR}; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
                         📋 Copiar Tabla Excel
                     </button>
@@ -350,7 +342,7 @@ if check_password():
                 </div>
                 
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-                <div class="mobile-only" style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
+                <div id="mobileBtnContainer" style="display: none; margin:0; padding:0; height: 45px; align-items: center;">
                     <button id="shareBtn" style="width: 100%; height: 45px; background-color: #25D366; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
                         📱 Compartir Tabla como Imagen
                     </button>
@@ -360,6 +352,14 @@ if check_password():
                 </div>
 
                 <script>
+                // Detección de dispositivo
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                if (isMobile) {{
+                    document.getElementById('mobileBtnContainer').style.display = 'flex';
+                }} else {{
+                    document.getElementById('desktopBtnContainer').style.display = 'flex';
+                }}
+
                 // Lógica de copiar (Desktop)
                 document.getElementById('cBtn').onclick = function() {{
                     const btn = this;
