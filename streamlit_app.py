@@ -281,6 +281,52 @@ if check_password():
     if st.session_state.proceso_completo and st.session_state.df_excel is not None:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             st.session_state.df_excel.to_excel(writer, index=False, sheet_name='Reporte')
+            
+            # Formato Condicional y Ancho de Columnas
+            worksheet = writer.sheets['Reporte']
+            from openpyxl.styles import PatternFill, Font, Alignment
+            
+            # Ajustar ancho de columnas
+            for column_cells in worksheet.columns:
+                length = max(len(str(cell.value)) if cell.value else 0 for cell in column_cells)
+                worksheet.column_dimensions[column_cells[0].column_letter].width = min(length + 2, 50)
+                
+            # Colores
+            green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+            green_font = Font(color="006100", bold=True)
+            yellow_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+            yellow_font = Font(color="9C5700", bold=True)
+            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            red_font = Font(color="9C0006", bold=True)
+            
+            header_fill = PatternFill(start_color="008657", end_color="008657", fill_type="solid")
+            header_font = Font(color="FFFFFF", bold=True)
+            
+            for cell in worksheet[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center")
+            
+            headers = [cell.value for cell in worksheet[1]]
+            estado_idx = headers.index("ESTADO") + 1 if "ESTADO" in headers else -1
+            estado_sem_idx = headers.index("ESTADO SEMESTRAL") + 1 if "ESTADO SEMESTRAL" in headers else -1
+                
+            for row in range(2, worksheet.max_row + 1):
+                for idx in [estado_idx, estado_sem_idx]:
+                    if idx != -1:
+                        cell = worksheet.cell(row=row, column=idx)
+                        if cell.value:
+                            val = str(cell.value).upper()
+                            if "VIGENTE" in val or "APROBADO" in val:
+                                cell.fill = green_fill
+                                cell.font = green_font
+                            elif "PRÓXIMO" in val:
+                                cell.fill = yellow_fill
+                                cell.font = yellow_font
+                            elif "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
+                                cell.fill = red_fill
+                                cell.font = red_font
+
     excel_data = excel_buffer.getvalue()
 
     dcol1, dcol2, dcol3 = st.columns(3)
@@ -288,28 +334,83 @@ if check_password():
     with dcol1:
         if st.session_state.proceso_completo:
             components.html(f"""
-                <div style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
+                <style>
+                @media (max-width: 768px) {{
+                    .desktop-only {{ display: none !important; }}
+                }}
+                @media (min-width: 769px) {{
+                    .mobile-only {{ display: none !important; }}
+                }}
+                </style>
+                <div class="desktop-only" style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
                     <button id="cBtn" style="width: 100%; height: 45px; background-color: {VERDE_SULLAIR}; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
-                        📋 Copiar Tabla (Para pegar en Excel)
+                        📋 Copiar Tabla Excel
                     </button>
                     <textarea id="hiddenTable" style="position:fixed; top:-1000px; opacity:0;">{st.session_state.html_excel}</textarea>
                 </div>
+                
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+                <div class="mobile-only" style="margin:0; padding:0; height: 45px; display: flex; align-items: center;">
+                    <button id="shareBtn" style="width: 100%; height: 45px; background-color: #25D366; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
+                        📱 Compartir Tabla como Imagen
+                    </button>
+                    <div id="captureArea" style="position: absolute; left: -9999px; background: white; padding: 10px;">
+                        {st.session_state.html_excel}
+                    </div>
+                </div>
+
                 <script>
+                // Lógica de copiar (Desktop)
                 document.getElementById('cBtn').onclick = function() {{
                     const btn = this;
                     const html = document.getElementById('hiddenTable').value;
                     const blob = new Blob([html], {{ type: 'text/html' }});
                     const data = [new ClipboardItem({{ 'text/html': blob }})];
                     navigator.clipboard.write(data).then(() => {{
-                        btn.innerHTML = "✅ ¡COPIADO!";
+                        btn.innerHTML = "✅ ¡COPIADO! (pegar con ctrl+v en Excel)";
                         btn.style.backgroundColor = "#28a745";
-                        setTimeout(() => {{ btn.innerHTML = "📋 Copiar Tabla (Para pegar en Excel)"; btn.style.backgroundColor = "{VERDE_SULLAIR}"; }}, 2000);
+                        setTimeout(() => {{ btn.innerHTML = "📋 Copiar Tabla Excel"; btn.style.backgroundColor = "{VERDE_SULLAIR}"; }}, 2000);
+                    }});
+                }};
+
+                // Lógica de compartir imagen (Móvil)
+                document.getElementById('shareBtn').onclick = function() {{
+                    const btn = this;
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = "⏳ Generando...";
+                    
+                    html2canvas(document.getElementById('captureArea')).then(canvas => {{
+                        canvas.toBlob(blob => {{
+                            const file = new File([blob], "reporte.png", {{ type: "image/png" }});
+                            if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
+                                navigator.share({{
+                                    files: [file],
+                                    title: 'Reporte WL Hopper',
+                                    text: 'Reporte de Certificados'
+                                }}).then(() => {{
+                                    btn.innerHTML = "✅ Compartido";
+                                    setTimeout(() => btn.innerHTML = originalText, 2000);
+                                }}).catch(err => {{
+                                    btn.innerHTML = "❌ Error al compartir";
+                                    setTimeout(() => btn.innerHTML = originalText, 2000);
+                                }});
+                            }} else {{
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = "reporte.png";
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                btn.innerHTML = "✅ Descargado";
+                                setTimeout(() => btn.innerHTML = originalText, 2000);
+                            }}
+                        }});
                     }});
                 }};
                 </script>
             """, height=45) 
         else:
-            st.button("📋 Copiar Tabla (Para pegar en Excel)", disabled=True, use_container_width=True)
+            st.button("📋 Copiar Tabla / Imagen", disabled=True, use_container_width=True)
             
     with dcol2:
         if st.session_state.proceso_completo:
@@ -332,55 +433,7 @@ if check_password():
             use_container_width=True
         )
 
-    # Solo en móvil o genérico: Botón para compartir por JS
-    if st.session_state.proceso_completo:
-        components.html(f"""
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-            <div style="margin-top: 10px; padding:0; height: 45px; display: flex; align-items: center;">
-                <button id="shareBtn" style="width: 100%; height: 45px; background-color: #25D366; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
-                    📱 Compartir Tabla como Imagen (Móvil)
-                </button>
-                <div id="captureArea" style="position: absolute; left: -9999px; background: white; padding: 10px;">
-                    {st.session_state.html_excel}
-                </div>
-            </div>
-            <script>
-            document.getElementById('shareBtn').onclick = function() {{
-                const btn = this;
-                const originalText = btn.innerHTML;
-                btn.innerHTML = "⏳ Generando imagen...";
-                
-                html2canvas(document.getElementById('captureArea')).then(canvas => {{
-                    canvas.toBlob(blob => {{
-                        const file = new File([blob], "reporte.png", {{ type: "image/png" }});
-                        if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
-                            navigator.share({{
-                                files: [file],
-                                title: 'Reporte WL Hopper',
-                                text: 'Reporte de Certificados'
-                            }}).then(() => {{
-                                btn.innerHTML = "✅ Compartido";
-                                setTimeout(() => btn.innerHTML = originalText, 2000);
-                            }}).catch(err => {{
-                                btn.innerHTML = "❌ Error al compartir";
-                                setTimeout(() => btn.innerHTML = originalText, 2000);
-                            }});
-                        }} else {{
-                            // Fallback download if Web Share API not available
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = "reporte.png";
-                            a.click();
-                            URL.revokeObjectURL(url);
-                            btn.innerHTML = "✅ Descargado";
-                            setTimeout(() => btn.innerHTML = originalText, 2000);
-                        }}
-                    }});
-                }});
-            }};
-            </script>
-        """, height=65)
+    # El bloque de compartir como imagen se movió a dcol1 y se intercala por CSS.
 
     st.divider()
     st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
