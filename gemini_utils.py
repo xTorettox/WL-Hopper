@@ -1,4 +1,4 @@
-import google.generativeai as genai
+from google import genai
 import fitz  # PyMuPDF
 import json
 import streamlit as st
@@ -16,12 +16,12 @@ def configurar_gemini():
             api_key = None
             
     if api_key:
-        genai.configure(api_key=api_key)
-        return True
-    return False
+        return genai.Client(api_key=api_key)
+    return None
 
 def analizar_informe_gemini(ruta_pdf):
-    if not configurar_gemini():
+    client = configurar_gemini()
+    if not client:
         return "ERROR: Sin API Key", "No se encontró la clave API de Gemini en st.secrets."
 
     try:
@@ -29,7 +29,7 @@ def analizar_informe_gemini(ruta_pdf):
         doc = fitz.open(ruta_pdf)
         texto = ""
         for i in range(len(doc)):
-            # Solo analizamos las primeras 3 páginas para ahorrar tokens y tiempo, los informes suelen ser cortos
+            # Solo analizamos las primeras 3 páginas para ahorrar tokens y tiempo
             if i > 2: break 
             texto += doc[i].get_text("text") + "\n"
         doc.close()
@@ -37,9 +37,6 @@ def analizar_informe_gemini(ruta_pdf):
         if not texto.strip():
             return "ERROR LECTURA", "No se pudo extraer texto del PDF."
 
-        # Modelo (usamos flash que es muy rápido y barato)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
         prompt = f"""
         Actúa como un analista de informes de inspección técnica.
         A continuación te proporciono el texto extraído de un informe de inspección de un equipo.
@@ -55,7 +52,10 @@ def analizar_informe_gemini(ruta_pdf):
         {texto}
         """
         
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
         # Limpiar posible markdown
         resp_text = response.text.replace('```json', '').replace('```', '').strip()
         data = json.loads(resp_text)
@@ -66,17 +66,20 @@ def analizar_informe_gemini(ruta_pdf):
         return "ERROR GEMINI", f"Error al analizar con IA: {str(e)[:50]}"
 
 def extraer_internos_imagen(imagen_bytes):
-    if not configurar_gemini():
+    client = configurar_gemini()
+    if not client:
         return []
 
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
         prompt = "Identifica todos los códigos o números internos de equipos que veas en esta imagen. Devuelve una lista separada por comas, sin ningún otro texto."
         
-        response = model.generate_content([
-            {'mime_type': 'image/jpeg', 'data': imagen_bytes}, # Usamos jpeg generico
-            prompt
-        ])
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=[
+                genai.types.Part.from_bytes(data=imagen_bytes, mime_type='image/jpeg'),
+                prompt
+            ]
+        )
         
         texto_crudo = response.text
         return [item.strip() for item in texto_crudo.split(',') if item.strip()]
