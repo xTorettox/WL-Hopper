@@ -197,17 +197,36 @@ class WLHopperBot:
             log_pasos.append(f"📄 Informe: {'Descargado' if descargo_inf else ('No hallado' if not existe_inf else 'Omitido')}")
             log_pasos.append(f"📜 Certificado: {'Descargado' if descargo_cert else 'Omitido o Vencido'}")
 
-            # --- ANÁLISIS GEMINI SI FALTA CERTIFICADO ---
+            # --- ANÁLISIS GEMINI (AUDITORÍA DE SEGURIDAD) ---
             observaciones = "-"
             estado_gemini = None
-            if not tiene_cert_reciente and ruta_informe_descargado:
+            
+            def _parse_date(d_str):
+                try: return datetime.strptime(d_str, "%d/%m/%Y")
+                except: return datetime.min
+                
+            fecha_insp_reciente = _parse_date(fila_reciente["insp"])
+            fecha_insp_cert = _parse_date(mejor_cert["insp"]) if mejor_cert else datetime.min
+            
+            es_rechazado = False
+            if fecha_insp_reciente > fecha_insp_cert and not tiene_cert_reciente:
+                es_rechazado = True
+                
+            if es_rechazado and ruta_informe_descargado:
                 log_pasos.append("🤖 Certificado faltante. Analizando informe con Gemini...")
                 estado_gemini, observaciones = analizar_informe_gemini(ruta_informe_descargado)
                 log_pasos.append(f"🤖 IA Estado: {estado_gemini}")
                 
             estado_final = estado_f if permitir_descarga_cert else "Vencido"
-            if estado_gemini:
+            det_final = f"Certificado {estado_f}" if permitir_descarga_cert else f"VENCIDO el {vencimiento_real}"
+            
+            if es_rechazado:
+                estado_final = "⚠️ RECHAZADO / EN PROCESO"
+                det_final = f"ALERTA: Informe del {fila_reciente['insp']} sin certificado. Nota IA: {observaciones}"
+            elif estado_gemini:
                 estado_final = estado_gemini
+                if observaciones != "-":
+                    det_final = observaciones
 
             return {
                 "status": estado_final,
@@ -215,7 +234,7 @@ class WLHopperBot:
                 "insp": fila_reciente["insp"],
                 "cert": "SI" if descargo_cert else "NO",
                 "inf": "SI" if existe_inf else "NO",
-                "det": observaciones if observaciones != "-" else (f"Certificado {estado_f}" if permitir_descarga_cert else f"VENCIDO el {vencimiento_real}"),
+                "det": det_final,
                 "obs": observaciones,
                 "log": log_pasos
             }
