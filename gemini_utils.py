@@ -1,52 +1,107 @@
-import streamlit as st
-import google.generativeai as genai
+from google import genai
 import fitz  # PyMuPDF
 import json
+import streamlit as st
+import time
 
 def configurar_gemini():
-    """Configura Gemini de forma segura y gratuita."""
+    """
+    Configura el cliente de Gemini. 
+    Busca la API Key en st.secrets de todas las formas posibles.
+    """
+    api_key = None
     try:
-        # El error del strip suele venir de intentar manipular el objeto secrets directamente.
-        # Aquí lo llamamos de la forma más estable posible.
-        api_key = st.secrets["GOOGLE_API_KEY"]
-        genai.configure(api_key=api_key)
-        return True
+        # 1. Intento: Formato simple (Clave: GOOGLE_API_KEY, Valor: tu_key)
+        api_key = st.secrets.get("GOOGLE_API_KEY")
+        
+        # 2. Intento: Si es un diccionario (Formato: [GOOGLE_API_KEY] -> GOOGLE_API_KEY = "tu_key")
+        if isinstance(api_key, dict):
+            api_key = api_key.get("GOOGLE_API_KEY")
+            
+        if api_key:
+            return genai.Client(api_key=api_key)
+            
     except Exception as e:
-        st.error(f"Error con la API Key en Secrets: {e}")
-        return False
-
-def ocr_bruto_gemini(imagen_bytes):
-    """OCR gratuito para extraer internos de fotos."""
-    if not configurar_gemini(): return ""
+        st.error(f"Error técnico con los secretos: {e}")
     
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        # Pasamos la imagen directamente como bytes para evitar líos de librerías
-        response = model.generate_content([
-            "Transcribe solo los códigos de internos (ej: E030193, 3797).",
-            {"mime_type": "image/jpeg", "data": imagen_bytes}
-        ])
-        return response.text
-    except Exception as e:
-        print(f"Error en OCR: {e}")
-        return ""
+    return None
 
 def analizar_informe_gemini(ruta_pdf):
-    """Analiza el PDF para detectar equipos rechazados (Gratis)."""
-    if not configurar_gemini(): return "ERROR", "Sin API Key"
-    
+    client = configurar_gemini()
+    if not client:
+        return "ERROR: Sin API Key", "No se encontró la clave en st.secrets."
+
     try:
         doc = fitz.open(ruta_pdf)
         texto = ""
-        for i in range(min(len(doc), 3)): # Solo leemos las primeras 3 páginas para no gastar tokens
-            texto += doc[i].get_text()
+        for i in range(len(doc)):
+            if i > 2: break # Primeras 3 páginas
+            texto += doc[i].get_text("text") + "\n"
         doc.close()
-
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"Analizá este informe técnico y decime si el equipo CUMPLE o NO CUMPLE. Si no cumple, resumí el porqué. Texto: {texto}"
         
-        response = model.generate_content(prompt)
-        # Una respuesta simple para evitar errores de parseo de JSON
-        return "REVISIÓN IA", response.text[:200]
+        if not texto.strip():
+            return "ERROR LECTURA", "PDF sin texto extraíble."
+
+        prompt = """
+        Sos un experto técnico de Sullair Argentina. Analizá el texto del informe:
+        1. Estado: VIGENTE, RECHAZADO o REQUIERE REPARACION.
+        2. Observaciones: Breve resumen técnico.
+        Responde solo JSON: {"estado": "...", "observaciones": "..."}
+        """
+
+        # Llamada con la nueva librería
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=[prompt, texto]
+        )
+        
+        resp_text = response.text.replace('```json', '').replace('```', '').strip()
+        data = json.loads(resp_text)
+        
+        return data.get('estado', 'DESCONOCIDO'), data.get('observaciones', '-')
+        
     except Exception as e:
-        return "ERROR IA", str(e)[:50]
+        return "ERROR IA", f"Fallo: {str(e)[:40]}"
+
+def extraer_internos_imagen(imagen_bytes):
+    """
+    Lee los internos (E040328, etc.) directamente de una foto.
+    """
+    client = configurar_gemini()
+    if not client:
+        return []
+
+    try:
+        prompt = "Listá todos los números de internos de equipos en la imagen (ej: E040328). Solo devolvé los códigos separados por coma."
+        
+        # Nueva sintaxis multimodal
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=[
+                prompt,
+                {"mime_type": "image/jpeg", "data": imagen_bytes}
+            ]
+        )
+        
+        return [item.strip() for item in response.text.split(',') if item.strip()]
+    except Exception:
+        return []
+
+def ocr_bruto_gemini(imagen_pil):
+    import streamlit as st
+    try:
+        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        prompt = "Transcribe todo el texto de esta imagen. Enfocate en códigos como E040230, A060124 o números sueltos."
+        
+        print(f"[DEBUG] Enviando imagen a Gemini... Tamaño: {imagen_pil.size}") # Esto sale en el log
+        response = model.generate_content([prompt, imagen_pil])
+        
+        texto_devuelto = response.text
+        print(f"[DEBUG] Gemini respondió: '{texto_devuelto}'") # Acá vemos si devolvió algo
+        
+        return texto_devuelto
+    except Exception as e:
+        print(f"[ERROR] Error en Gemini: {str(e)}") # Si la API Key falla, lo vemos acá
+        return ""
