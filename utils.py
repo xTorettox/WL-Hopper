@@ -24,37 +24,41 @@ def extraer_texto_de_archivo(archivo):
 
 def extraer_internos(texto_sucio):
     """
-    Lógica Híbrida:
+    Lógica Híbrida preservando el orden de entrada:
     1. Usa Regex para los nuevos (E03, A04, E06, etc.)
     2. Usa internos_viejos.txt para los que no cumplen el patrón nuevo.
     """
     texto_upper = texto_sucio.upper()
     
-    # --- 1. REGEX PARA NOMENCLATURA NUEVA ---
-    # Patrón: E o A + 0 + (3, 4 o 6) + 4 dígitos. Ejemplo: E040230
-    patron_nuevo = r'[EA]0[346]\d{4}'
-    encontrados_nuevos = set(re.findall(patron_nuevo, texto_upper))
-    
-    # --- 2. BÚSQUEDA DE INTERNOS VIEJOS (Lista de Oro) ---
-    encontrados_viejos = set()
+    # Cargamos la lista de viejos
+    base_viejos = set()
     ruta_viejos = "internos_viejos.txt"
-    
     if os.path.exists(ruta_viejos):
         try:
             with open(ruta_viejos, "r") as f:
-                # Cargamos set limpio (sin espacios ni líneas vacías)
                 base_viejos = {line.strip().upper() for line in f if line.strip()}
-            
-            # Separamos el texto sucio por cualquier cosa que no sea letra o número
-            palabras_en_texto = set(re.split(r'[^A-Z0-9]', texto_upper))
-            # Intersección: solo los que están en el texto Y en la lista de viejos
-            encontrados_viejos = palabras_en_texto.intersection(base_viejos)
         except Exception as e:
             print(f"Error al leer internos_viejos.txt: {e}")
 
-    # Unimos ambos, eliminamos duplicados y ordenamos
-    resultado = sorted(list(encontrados_nuevos.union(encontrados_viejos)))
-    return resultado
+    resultado_lista = []
+    vistos = set()
+
+    # Buscamos usando el regex para el nuevo formato
+    for match in re.finditer(r'[EA]0[346]\d{4}', texto_upper):
+        id_nuevo = match.group()
+        if id_nuevo not in vistos:
+            vistos.add(id_nuevo)
+            resultado_lista.append(id_nuevo)
+            
+    # Buscamos en todo el texto palabras que coincidan con la base de viejos
+    # Separamos el texto sucio por cualquier cosa que no sea letra o número
+    palabras_en_texto = re.split(r'[^A-Z0-9]', texto_upper)
+    for palabra in palabras_en_texto:
+        if palabra in base_viejos and palabra not in vistos:
+            vistos.add(palabra)
+            resultado_lista.append(palabra)
+
+    return resultado_lista
 
 def analizar_fecha(fecha_str):
     """
