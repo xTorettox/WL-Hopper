@@ -87,26 +87,21 @@ def extraer_internos_imagen(imagen_bytes):
     except Exception:
         return []
 
-def ocr_bruto_gemini(imagen_bytes):
-    """
-    Usa Gemini 1.5 Flash como OCR puro. Solo transcribe texto, 
-    no analiza. El resultado se pasa a extraer_internos.
-    """
-    client = configurar_gemini()
-    if not client:
-        return ""
-
+def ocr_bruto_gemini(imagen_pil):
+    import streamlit as st
     try:
-        prompt = "Transcribe todo el texto visible en esta imagen, especialmente códigos alfanuméricos."
+        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=[
-                prompt,
-                {"mime_type": "image/jpeg", "data": imagen_bytes}
-            ]
-        )
-        return response.text
+        prompt = "Transcribe todo el texto de esta imagen. Enfocate en códigos como E040230, A060124 o números sueltos."
+        
+        print(f"[DEBUG] Enviando imagen a Gemini... Tamaño: {imagen_pil.size}") # Esto sale en el log
+        response = model.generate_content([prompt, imagen_pil])
+        
+        texto_devuelto = response.text
+        print(f"[DEBUG] Gemini respondió: '{texto_devuelto}'") # Acá vemos si devolvió algo
+        
+        return texto_devuelto
     except Exception as e:
-        print(f"Error OCR: {e}")
+        print(f"[ERROR] Error en Gemini: {str(e)}") # Si la API Key falla, lo vemos acá
         return ""
