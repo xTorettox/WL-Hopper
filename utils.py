@@ -24,13 +24,16 @@ def extraer_texto_de_archivo(archivo):
 
 def extraer_internos(texto_sucio):
     """
-    Lógica Híbrida preservando el orden de entrada:
-    1. Usa Regex para los nuevos (E03, A04, E06, etc.)
-    2. Usa internos_viejos.txt para los que no cumplen el patrón nuevo.
+    Lógica Híbrida: Separa internos pegados (E040230E061719) 
+    y filtra contra la lista de internos_viejos.txt.
     """
     texto_upper = texto_sucio.upper()
     
-    # Cargamos la lista de viejos
+    # REGEX RECARGADA: Busca [EA] + 6 dígitos sin límites de palabra
+    patron_nuevo = r'[EA]\d{6}' 
+    encontrados_nuevos = re.findall(patron_nuevo, texto_upper)
+    
+    # Carga de internos_viejos.txt
     base_viejos = set()
     ruta_viejos = "internos_viejos.txt"
     if os.path.exists(ruta_viejos):
@@ -40,25 +43,23 @@ def extraer_internos(texto_sucio):
         except Exception as e:
             print(f"Error al leer internos_viejos.txt: {e}")
 
-    resultado_lista = []
+    # Filtramos y unificamos preservando orden
+    resultado = []
     vistos = set()
-
-    # Buscamos usando el regex para el nuevo formato
-    for match in re.finditer(r'[EA]0[346]\d{4}', texto_upper):
-        id_nuevo = match.group()
-        if id_nuevo not in vistos:
-            vistos.add(id_nuevo)
-            resultado_lista.append(id_nuevo)
+    
+    # Primero los que cumplen el patrón nuevo
+    for i in encontrados_nuevos:
+        if i not in vistos:
+            resultado.append(i)
+            vistos.add(i)
             
-    # Buscamos en todo el texto palabras que coincidan con la base de viejos
-    # Separamos el texto sucio por cualquier cosa que no sea letra o número
-    palabras_en_texto = re.split(r'[^A-Z0-9]', texto_upper)
-    for palabra in palabras_en_texto:
-        if palabra in base_viejos and palabra not in vistos:
-            vistos.add(palabra)
-            resultado_lista.append(palabra)
-
-    return resultado_lista
+    # Luego buscamos los viejos por coincidencia exacta de palabra en el texto sucio
+    for viejo in base_viejos:
+        if re.search(rf'\b{re.escape(viejo)}\b', texto_upper) and viejo not in vistos:
+            resultado.append(viejo)
+            vistos.add(viejo)
+            
+    return resultado
 
 def analizar_fecha(fecha_str):
     """
