@@ -64,7 +64,6 @@ def check_password():
 
     # Si NO es True (es decir, es False o None), mostramos el login
     if st.session_state.get("password_correct") is not True:
-        st.markdown("<br><br>", unsafe_allow_html=True)
         c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
         
         with c_l2:
