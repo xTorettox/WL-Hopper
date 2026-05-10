@@ -193,9 +193,28 @@ if check_password():
                         image = enhancer.enhance(2.0) # Aumentar contraste
                         
                         texto_imagen = pytesseract.image_to_string(image, config='--psm 11')
-                        texto_base += " " + texto_imagen
+                        
+                        # Limpiar errores típicos de OCR SOLO para imágenes
+                        palabras = texto_imagen.upper().split()
+                        texto_corregido = []
+                        for p in palabras:
+                            # 1. Corregir prefijo OCR
+                            if p and p[0] in ['£', '€', '3', 'È', 'É']:
+                                p = 'E' + p[1:]
+                            elif p and p[0] in ['4', '^', '@']:
+                                p = 'A' + p[1:]
+                                
+                            # 2. Corregir letras confundidas con números dentro del interno
+                            if p.startswith('E') or p.startswith('A'):
+                                p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5')
+                                texto_corregido.append(p[0] + p_resto)
+                            else:
+                                texto_corregido.append(p)
+                                
+                        texto_imagen_limpio = " ".join(texto_corregido)
+                        texto_base += " " + texto_imagen_limpio
                         st.session_state.log_history.append("🤖 Texto extraído de la imagen exitosamente.")
-                        st.session_state.log_history.append(f"🐛 Debug OCR: {texto_imagen}")
+                        st.session_state.log_history.append(f"🐛 Debug OCR: {texto_imagen_limpio}")
                     except Exception as e:
                         st.session_state.log_history.append(f"❌ Error de OCR: {e}")
                 else:
