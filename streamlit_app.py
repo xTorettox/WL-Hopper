@@ -8,7 +8,8 @@ from scraper import WLHopperBot
 from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimiento_semestral, asegurar_carpeta
 import streamlit.components.v1 as components
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance
+import re
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
@@ -182,9 +183,27 @@ if check_password():
                     st.session_state.log_history.append("🤖 Analizando imagen con OCR...")
                     render_terminal()
                     try:
-                        image = Image.open(archivo_subido)
-                        texto_imagen = pytesseract.image_to_string(image)
-                        texto_base += " " + texto_imagen
+                        # Preprocesamiento de imagen para mejorar la precisión del OCR
+                        image = Image.open(archivo_subido).convert('L') # Escala de grises
+                        w, h = image.size
+                        image = image.resize((w*2, h*2), Image.Resampling.LANCZOS) # Aumentar tamaño
+                        enhancer = ImageEnhance.Contrast(image)
+                        image = enhancer.enhance(2.0) # Aumentar contraste
+                        
+                        texto_imagen = pytesseract.image_to_string(image, config='--psm 11')
+                        
+                        # Limpiar errores típicos de OCR (ej. O por 0, S por 5, I/l por 1) en posibles internos
+                        palabras = texto_imagen.upper().split()
+                        texto_corregido = []
+                        for p in palabras:
+                            if p.startswith('E') or p.startswith('A'):
+                                p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5')
+                                texto_corregido.append(p[0] + p_resto)
+                            else:
+                                texto_corregido.append(p)
+                                
+                        texto_imagen_limpio = " ".join(texto_corregido)
+                        texto_base += " " + texto_imagen_limpio
                         st.session_state.log_history.append("🤖 Texto extraído de la imagen exitosamente.")
                     except Exception as e:
                         st.session_state.log_history.append(f"❌ Error de OCR: {e}")
