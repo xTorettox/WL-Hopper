@@ -29,8 +29,12 @@ def extraer_internos(texto_sucio):
     """
     texto_upper = texto_sucio.upper()
     
-    # REGEX RECARGADA: Busca [EA] + 6 dígitos sin límites de palabra
-    patron_nuevo = r'[EA]\d{6}' 
+    # 1. Limpieza previa: Convertimos símbolos comunes de error en 'E'
+    for char in ['£', '€', '3', 'È', 'É']:
+        texto_upper = texto_upper.replace(char, 'E')
+        
+    # 2. REGEX MEJORADA: Busca [EA0-9] + 6 dígitos
+    patron_nuevo = r'[EA0-9]\d{6}' 
     encontrados_nuevos = re.findall(patron_nuevo, texto_upper)
     
     # Carga de internos_viejos.txt
