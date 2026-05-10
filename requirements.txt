@@ -2,3 +2,8 @@ streamlit
 pandas
 playwright
 requests
+openpyxl
+google-genai
+PyMuPDF
+pytesseract
+Pillow
