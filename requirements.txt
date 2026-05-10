@@ -5,3 +5,5 @@ requests
 openpyxl
 google-genai
 PyMuPDF
+pytesseract
+Pillow
