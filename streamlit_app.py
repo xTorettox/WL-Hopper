@@ -10,6 +10,10 @@ import streamlit.components.v1 as components
 import pytesseract
 from PIL import Image, ImageEnhance
 import re
+import importlib
+import utils
+importlib.reload(utils)
+from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimiento_semestral, asegurar_carpeta
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
@@ -198,13 +202,17 @@ if check_password():
                         palabras = texto_imagen.upper().split()
                         texto_corregido = []
                         for p in palabras:
-                            # 1. Corregir prefijo OCR
-                            if p and p[0] in ['£', '€', '3', 'È', 'É']:
+                            # 1. Reemplazos globales para caracteres no numéricos
+                            for char in ['£', '€', 'È', 'É']:
+                                p = p.replace(char, 'E')
+                                
+                            # 2. Corregir prefijo OCR específico si empieza mal
+                            if p and p.startswith('3'):
                                 p = 'E' + p[1:]
                             elif p and p[0] in ['4', '^', '@']:
                                 p = 'A' + p[1:]
                                 
-                            # 2. Corregir letras confundidas con números dentro del interno
+                            # 3. Corregir letras confundidas con números dentro del interno
                             if p.startswith('E') or p.startswith('A'):
                                 p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5')
                                 texto_corregido.append(p[0] + p_resto)
@@ -222,6 +230,7 @@ if check_password():
                     texto_base += " " + extraer_texto_de_archivo(archivo_subido)
             
             lista = extraer_internos(texto_base)
+            st.session_state.log_history.append(f"🐛 Debug Llista final: {lista}")
             
             if not lista:
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar.")
@@ -262,7 +271,7 @@ if check_password():
                     th_semestral = "<th>VENC. SEMESTRAL</th><th>ESTADO SEMESTRAL</th>" if es_semestral else ""
                     html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; padding: 10px 20px; }}</style>
                     <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">
-                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th>{th_semestral}<th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>DETALLE</th></tr>"""
+                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th>{th_semestral}<th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
                     
                     excel_data = []
                     for r in res_lista:
@@ -283,8 +292,8 @@ if check_password():
                             html += f'<td>{r["venc_sem"]}</td><td style="background-color: {bg_sem}; color: {tx_sem}; font-weight: bold;">{r["est_sem"]}</td>'
                         
                         html += f'<td>{cert_val}</td><td>{r["inf"]}</td>'
-                        html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs", "-")}</td>'
-                        html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r["det"]}</td></tr>'
+                        html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs_final", "-")}</td>'
+                        html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
                         
                         row_dict = {
                             "INTERNO": r["id"], "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO": r["venc"]
@@ -295,7 +304,7 @@ if check_password():
                             
                         row_dict.update({
                             "CERTIFICADO": cert_val, "INFORME": r["inf"], 
-                            "OBSERVACIONES": r.get("obs", "-"), "DETALLE": r["det"]
+                            "OBSERVACIONES": r.get("obs_final", "-"), "ACCIONES": r.get("accion_final", "-")
                         })
                         excel_data.append(row_dict)
                         
@@ -354,7 +363,7 @@ if check_password():
                             if "VERDE" in val or "VIGENTE" in val or "APROBADO" in val:
                                 cell.fill = green_fill
                                 cell.font = green_font
-                            elif "AMARILLO" in val or "PRÓXIMO" in val:
+                            elif "AMARILLO" in val or "PRÓXIMO" in val or "GESTIÓN" in val:
                                 cell.fill = yellow_fill
                                 cell.font = yellow_font
                             elif "ROJO" in val or "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
