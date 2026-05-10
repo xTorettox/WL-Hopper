@@ -250,12 +250,12 @@ class WLHopperBot:
                     # B.1) Último certificado está vigente
                     if estado_ocr == "CUMPLE":
                         estado_final = "EN GESTIÓN"
-                        obs_final = f"{txt_dias}. Reporte: {obs_ocr}."
+                        obs_final = f"{txt_dias}. Inspección superada."
                         accion_final = "Esperar carga nuevo certificado"
                         color_final = "VERDE"
                     elif estado_ocr == "NO CUMPLE":
                         estado_final = "REINSPECCIONAR"
-                        obs_final = f"Último certificado: {txt_dias}. Reporte: {obs_ocr}."
+                        obs_final = f"Último certificado: {txt_dias}. Interno NO superó la inspección."
                         accion_final = "Verificar informe, contactar a ST"
                         color_final = "AMARILLO"
                     else:
@@ -267,8 +267,8 @@ class WLHopperBot:
                     # B.2) Último certificado está vencido o no hay registro
                     if estado_ocr == "CUMPLE":
                         estado_final = "VIGENTE"
-                        obs_final = f"Último certificado vencido. Reporte: {obs_ocr}."
-                        accion_final = "Esperar carga nuevo certificado/solicitar provisorio"
+                        obs_final = f"Último certificado vencido. Inspección superada."
+                        accion_final = "Esperar nuevo certificado/solicitar provisorio"
                         color_final = "VERDE" # Si es VIGENTE, lógicamente es VERDE
                     elif estado_ocr == "NO CUMPLE":
                         estado_final = "VENCIDO"
