@@ -6,9 +6,8 @@ import zipfile
 from io import BytesIO
 from scraper import WLHopperBot
 from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimiento_semestral, asegurar_carpeta
+from gemini_utils import extraer_internos_imagen
 import streamlit.components.v1 as components
-import pytesseract
-from PIL import Image
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
@@ -179,15 +178,11 @@ if check_password():
             texto_base = texto_internos
             if archivo_subido is not None:
                 if archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    st.session_state.log_history.append("🤖 Analizando imagen con OCR...")
+                    st.session_state.log_history.append("🤖 Analizando imagen con Gemini Vision...")
                     render_terminal()
-                    try:
-                        image = Image.open(archivo_subido)
-                        texto_imagen = pytesseract.image_to_string(image)
-                        texto_base += " " + texto_imagen
-                        st.session_state.log_history.append("🤖 Texto extraído de la imagen exitosamente.")
-                    except Exception as e:
-                        st.session_state.log_history.append(f"❌ Error de OCR: {e}")
+                    ids_imagen = extraer_internos_imagen(archivo_subido.getvalue())
+                    texto_base += " " + " ".join(ids_imagen)
+                    st.session_state.log_history.append(f"🤖 Extraídos {len(ids_imagen)} internos de la imagen.")
                 else:
                     st.session_state.log_history.append("📄 Extrayendo texto de archivo...")
                     texto_base += " " + extraer_texto_de_archivo(archivo_subido)
