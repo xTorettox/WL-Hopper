@@ -116,7 +116,7 @@ class WLHopperBot:
             
             candidatos.sort(key=lambda x: parse_date(x["insp"]), reverse=True)
             fila_reciente = candidatos[0]
-            log_pasos = [f"✅ Hallado: {interno}", f"📅 Última Insp: {fila_reciente['insp']}"]
+            log_pasos = [f"✅ Encontrado: {interno}", f"📅 Última Insp: {fila_reciente['insp']}"]
             
             # --- AUDITORÍA DE PDFS ---
             mejor_cert = None
@@ -228,49 +228,58 @@ class WLHopperBot:
                 log_pasos.append(f"🤖 Resultado OCR: {estado_ocr}")
                 
             if not es_rechazado:
-                # INFORME Y CERTIFICADO EN ÚLTIMA COLUMNA
+                # Caso A: INFORME Y CERTIFICADO EN ÚLTIMA COLUMNA
                 if dias_restantes > 30:
                     estado_final = "VIGENTE"
                     obs_final = f"{txt_dias}"
                     accion_final = "-"
+                    color_final = "VERDE"
                 elif 0 <= dias_restantes <= 30:
-                    estado_final = "PRÓXIMO"
+                    estado_final = "PRÓXIMO A VENCER"
                     obs_final = f"{txt_dias}"
                     accion_final = "Coordinar recertificación"
+                    color_final = "AMARILLO"
                 else:
                     estado_final = "VENCIDO"
                     obs_final = f"Último certificado vencido en {mejor_cert['venc']}." if mejor_cert else "Último certificado vencido."
                     accion_final = "Coordinar recertificación urgente"
+                    color_final = "ROJO"
             else:
-                # INFORME EN ÚLTIMA COLUMNA SIN CERTIFICADO
+                # Caso B: INFORME EN ÚLTIMA COLUMNA SIN CERTIFICADO
                 if cert_vigente:
-                    # 1) Último certificado está vigente
+                    # B.1) Último certificado está vigente
                     if estado_ocr == "CUMPLE":
                         estado_final = "EN GESTIÓN"
                         obs_final = f"{txt_dias}. Reporte: {obs_ocr}."
                         accion_final = "Esperar carga nuevo certificado"
+                        color_final = "VERDE"
                     elif estado_ocr == "NO CUMPLE":
-                        estado_final = "VENCIDO"
-                        obs_final = f"{txt_dias}. Reporte: {obs_ocr}."
+                        estado_final = "REINSPECCIONAR"
+                        obs_final = f"Último certificado: {txt_dias}. Reporte: {obs_ocr}."
                         accion_final = "Verificar informe, contactar a ST"
+                        color_final = "AMARILLO"
                     else:
                         estado_final = "EN GESTIÓN"
-                        obs_final = f"{txt_dias}. No se pudo leer el informe automáticamente."
+                        obs_final = f"Último certificado: {txt_dias}. No se pudo leer el informe automáticamente."
                         accion_final = "Verificar informe para comprobar resultado"
+                        color_final = "AMARILLO"
                 else:
-                    # 2) Último certificado está vencido o no hay registro
+                    # B.2) Último certificado está vencido o no hay registro
                     if estado_ocr == "CUMPLE":
-                        estado_final = "VENCIDO"
+                        estado_final = "VIGENTE"
                         obs_final = f"Último certificado vencido. Reporte: {obs_ocr}."
-                        accion_final = "Esperar carga nuevo certificado"
+                        accion_final = "Esperar carga nuevo certificado/solicitar provisorio"
+                        color_final = "VERDE" # Si es VIGENTE, lógicamente es VERDE
                     elif estado_ocr == "NO CUMPLE":
                         estado_final = "VENCIDO"
                         obs_final = f"Último certificado vencido. Interno NO superó la inspección."
                         accion_final = "Verificar informe, contactar a ST"
+                        color_final = "ROJO"
                     else:
                         estado_final = "VENCIDO"
                         obs_final = f"Último certificado vencido. No se pudo leer el informe automáticamente."
-                        accion_final = "Verificar informe, contactar a ST"
+                        accion_final = "Verificar informe"
+                        color_final = "ROJO"
                         
             return {
                 "status": estado_final,
@@ -280,6 +289,7 @@ class WLHopperBot:
                 "inf": "SI" if existe_inf else "NO",
                 "obs_final": obs_final,
                 "accion_final": accion_final,
+                "color": color_final,
                 "log": log_pasos
             }
 
