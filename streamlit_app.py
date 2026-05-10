@@ -264,7 +264,7 @@ if check_password():
                         elif "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
                         
                         html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
-                        html += f'<td>{r["insp"]}</td><td>{r["venc"]}</td>'
+                        html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
                         
                         if es_semestral:
                             bg_sem, tx_sem = "#FFFFFF", "#000000"
