@@ -5,27 +5,17 @@ import streamlit as st
 import time
 
 def configurar_gemini():
-    """
-    Configura el cliente de Gemini. 
-    Busca la API Key en st.secrets de todas las formas posibles.
-    """
-    api_key = None
-    try:
-        # 1. Intento: Formato simple (Clave: GOOGLE_API_KEY, Valor: tu_key)
-        api_key = st.secrets.get("GOOGLE_API_KEY")
-        
-        # 2. Intento: Si es un diccionario (Formato: [GOOGLE_API_KEY] -> GOOGLE_API_KEY = "tu_key")
-        if isinstance(api_key, dict):
-            api_key = api_key.get("GOOGLE_API_KEY")
-            
-        if api_key:
-            return genai.Client(api_key=api_key)
-            
-    except Exception as e:
-        st.error(f"Error técnico con los secretos: {e}")
+    # Probamos todas las variantes posibles
+    api_key = st.secrets.get("GOOGLE_API_KEY")
     
+    # Si lo que trajo es un diccionario, entramos un nivel más
+    if isinstance(api_key, dict):
+        api_key = api_key.get("GOOGLE_API_KEY")
+    
+    if api_key:
+        return genai.Client(api_key=api_key)
     return None
-
+    
 def analizar_informe_gemini(ruta_pdf):
     client = configurar_gemini()
     if not client:
