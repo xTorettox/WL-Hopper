@@ -145,6 +145,8 @@ if check_password():
     
         st.markdown("##### Listado de Internos")
         archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
+        if archivo_subido and archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
+            st.info("⚠️ **Función Experimental:** La extracción de texto desde imagen (OCR) puede requerir revisión manual.")
         texto_internos = st.text_area("O pegá el texto acá:", height=115, placeholder="E040230, 3797...")
         btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
     
@@ -191,21 +193,9 @@ if check_password():
                         image = enhancer.enhance(2.0) # Aumentar contraste
                         
                         texto_imagen = pytesseract.image_to_string(image, config='--psm 11')
-                        
-                        # Limpiar errores típicos de OCR (ej. O por 0, S por 5, I/l por 1) en posibles internos
-                        palabras = texto_imagen.upper().split()
-                        texto_corregido = []
-                        for p in palabras:
-                            if p.startswith('E') or p.startswith('A'):
-                                p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5')
-                                texto_corregido.append(p[0] + p_resto)
-                            else:
-                                texto_corregido.append(p)
-                                
-                        texto_imagen_limpio = " ".join(texto_corregido)
-                        texto_base += " " + texto_imagen_limpio
+                        texto_base += " " + texto_imagen
                         st.session_state.log_history.append("🤖 Texto extraído de la imagen exitosamente.")
-                        st.session_state.log_history.append(f"🐛 Debug OCR: {texto_imagen_limpio}")
+                        st.session_state.log_history.append(f"🐛 Debug OCR: {texto_imagen}")
                     except Exception as e:
                         st.session_state.log_history.append(f"❌ Error de OCR: {e}")
                 else:
@@ -258,10 +248,10 @@ if check_password():
                     excel_data = []
                     for r in res_lista:
                         bg, tx, st_text = "#FFFFFF", "#000000", r['status'].upper()
-                        cert_val = "SI" if "VIGENTE" in st_text or "PRÓXIMO" in st_text or "APROBADO" in st_text else "NO"
-                        if "VIGENTE" in st_text or "APROBADO" in st_text: bg, tx = "#C6EFCE", "#006100"
-                        elif "PRÓXIMO" in st_text: bg, tx = "#FFEB9C", "#9C5700"
-                        elif "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
+                        cert_val = r['cert']
+                        if "VERDE" in st_text or "VIGENTE" in st_text or "APROBADO" in st_text: bg, tx = "#C6EFCE", "#006100"
+                        elif "AMARILLO" in st_text or "PRÓXIMO" in st_text: bg, tx = "#FFEB9C", "#9C5700"
+                        elif "ROJO" in st_text or "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
                         
                         html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                         html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
@@ -342,13 +332,13 @@ if check_password():
                         cell = worksheet.cell(row=row, column=idx)
                         if cell.value:
                             val = str(cell.value).upper()
-                            if "VIGENTE" in val or "APROBADO" in val:
+                            if "VERDE" in val or "VIGENTE" in val or "APROBADO" in val:
                                 cell.fill = green_fill
                                 cell.font = green_font
-                            elif "PRÓXIMO" in val:
+                            elif "AMARILLO" in val or "PRÓXIMO" in val:
                                 cell.fill = yellow_fill
                                 cell.font = yellow_font
-                            elif "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
+                            elif "ROJO" in val or "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
                                 cell.fill = red_fill
                                 cell.font = red_font
 
