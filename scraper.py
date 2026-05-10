@@ -230,48 +230,56 @@ class WLHopperBot:
             if not es_rechazado:
                 # INFORME Y CERTIFICADO EN ÚLTIMA COLUMNA
                 if dias_restantes > 30:
-                    estado_final = "VIGENTE (VERDE)"
-                    det_final = f"{txt_dias}"
+                    estado_final = "VIGENTE"
+                    obs_final = f"{txt_dias}"
+                    accion_final = "-"
                 elif 0 <= dias_restantes <= 30:
-                    estado_final = "PRÓXIMO (AMARILLO)"
-                    det_final = f"{txt_dias}, aviso recertificación"
+                    estado_final = "PRÓXIMO"
+                    obs_final = f"{txt_dias}"
+                    accion_final = "Coordinar recertificación"
                 else:
-                    estado_final = "VENCIDO (ROJO)"
-                    det_final = f"certificado vencido en {mejor_cert['venc']}, aviso recertificación urgente" if mejor_cert else "certificado vencido, aviso recertificación urgente"
+                    estado_final = "VENCIDO"
+                    obs_final = f"Último certificado vencido en {mejor_cert['venc']}." if mejor_cert else "Último certificado vencido."
+                    accion_final = "Coordinar recertificación urgente"
             else:
                 # INFORME EN ÚLTIMA COLUMNA SIN CERTIFICADO
                 if cert_vigente:
                     # 1) Último certificado está vigente
                     if estado_ocr == "CUMPLE":
-                        estado_final = "EN GESTIÓN (AMARILLO)"
-                        det_final = f"{txt_dias}, Reporte: {obs_ocr}, Esperar carga nuevo certificado"
+                        estado_final = "EN GESTIÓN"
+                        obs_final = f"{txt_dias}. Reporte: {obs_ocr}."
+                        accion_final = "Esperar carga nuevo certificado"
                     elif estado_ocr == "NO CUMPLE":
-                        estado_final = "NO CUMPLE (ROJO)"
-                        det_final = f"{txt_dias}, Reporte: {obs_ocr}, Verificar informe, contactar a ST"
+                        estado_final = "VENCIDO"
+                        obs_final = f"{txt_dias}. Reporte: {obs_ocr}."
+                        accion_final = "Verificar informe, contactar a ST"
                     else:
-                        estado_final = "VERIFICAR (AMARILLO)"
-                        det_final = f"{txt_dias}, Verificar informe para comprobar resultado de Inspección"
+                        estado_final = "EN GESTIÓN"
+                        obs_final = f"{txt_dias}. No se pudo leer el informe automáticamente."
+                        accion_final = "Verificar informe para comprobar resultado"
                 else:
-                    # 2) Último certificado NO está vigente
-                    txt_vencido = "Último certificado vencido"
+                    # 2) Último certificado está vencido o no hay registro
                     if estado_ocr == "CUMPLE":
-                        estado_final = "EN GESTIÓN (AMARILLO)"
-                        det_final = f"{txt_vencido}, Reporte: {obs_ocr}, Esperar carga nuevo certificado/solicitar provisorio"
+                        estado_final = "VENCIDO"
+                        obs_final = f"Último certificado vencido. Reporte: {obs_ocr}."
+                        accion_final = "Esperar carga nuevo certificado"
                     elif estado_ocr == "NO CUMPLE":
-                        estado_final = "NO CUMPLE (ROJO)"
-                        det_final = f"{txt_vencido}, Reporte: {obs_ocr}, Verificar informe, contactar a ST"
+                        estado_final = "VENCIDO"
+                        obs_final = f"Último certificado vencido. Interno NO superó la inspección."
+                        accion_final = "Verificar informe, contactar a ST"
                     else:
-                        estado_final = "VERIFICAR (ROJO)"
-                        det_final = f"{txt_vencido}, Verificar informe para comprobar resultado de Inspección"
-
+                        estado_final = "VENCIDO"
+                        obs_final = f"Último certificado vencido. No se pudo leer el informe automáticamente."
+                        accion_final = "Verificar informe, contactar a ST"
+                        
             return {
                 "status": estado_final,
-                "venc": vencimiento_real,
                 "insp": fila_reciente["insp"],
+                "venc": fila_reciente["venc"],
                 "cert": "SI" if descargo_cert else "NO",
                 "inf": "SI" if existe_inf else "NO",
-                "det": det_final,
-                "obs": observaciones,
+                "obs_final": obs_final,
+                "accion_final": accion_final,
                 "log": log_pasos
             }
 
