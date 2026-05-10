@@ -128,6 +128,7 @@ if check_password():
     if "html_excel" not in st.session_state: st.session_state.html_excel = ""
     if "df_excel" not in st.session_state: st.session_state.df_excel = None
     if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
+    if "res_lista" not in st.session_state: st.session_state.res_lista = []
     
     col_left, col_right = st.columns([1, 1.2], gap="large")
     
@@ -267,6 +268,7 @@ if check_password():
                     bot.cerrar()
                     st.session_state.log_history.append("🔓 Sesión cerrada correctamente.")
                     st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
+                    st.session_state.res_lista = res_lista
                     st.session_state.proceso_completo = True
                     st.session_state.hay_archivos = len(os.listdir(ruta_temp)) > 0 if os.path.exists(ruta_temp) else False
         
