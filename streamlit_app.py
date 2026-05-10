@@ -108,13 +108,9 @@ if check_password():
                 st.write("🤖")
         with c2:
             st.markdown("""
-            **WL Hopper** es una app diseñada para optimizar la descarga de certificados desde el sitio de **Worklift**.
-            
-            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para descargar PDFs en segundo plano.
+            **WL Hopper** automatiza la descarga de certificados de Worklift.
             """)
-        
-        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de nuestros equipos desde el sitio web de Worklift.")
-        
+        st.info("🚀 **Misión:** Recuperar y estructurar la información de equipos.")
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
 
@@ -226,7 +222,7 @@ if check_password():
                         texto_imagen_limpio = " ".join(texto_corregido)
                         texto_base += " " + texto_imagen_limpio
                         st.session_state.log_history.append("🤖 Texto extraído de la imagen exitosamente.")
-                        st.session_state.log_history.append(f"🐛 Debug OCR: {texto_imagen_limpio}")
+                        st.session_state.log_history.append(f"📄 Lectura texto mediante OCR: {texto_imagen_limpio}")
                     except Exception as e:
                         st.session_state.log_history.append(f"❌ Error de OCR: {e}")
                 else:
@@ -234,7 +230,7 @@ if check_password():
                     texto_base += " " + extraer_texto_de_archivo(archivo_subido)
             
             lista = extraer_internos(texto_base)
-            st.session_state.log_history.append(f"🐛 Debug Llista final: {lista}")
+            st.session_state.log_history.append(f"📄 Lista obtenida: {lista}")
             
             if not lista:
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar.")
@@ -281,9 +277,14 @@ if check_password():
                     for r in res_lista:
                         bg, tx, st_text = "#FFFFFF", "#000000", r['status'].upper()
                         cert_val = r['cert']
-                        if "VERDE" in st_text or "VIGENTE" in st_text or "APROBADO" in st_text: bg, tx = "#C6EFCE", "#006100"
-                        elif "AMARILLO" in st_text or "PRÓXIMO" in st_text: bg, tx = "#FFEB9C", "#9C5700"
-                        elif "ROJO" in st_text or "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
+                        color_code = r.get('color', '').upper()
+                        if color_code == "VERDE": bg, tx = "#C6EFCE", "#006100"
+                        elif color_code == "AMARILLO": bg, tx = "#FFEB9C", "#9C5700"
+                        elif color_code == "ROJO": bg, tx = "#FFC7CE", "#9C0006"
+                        else:
+                            if "VERDE" in st_text or "VIGENTE" in st_text or "APROBADO" in st_text: bg, tx = "#C6EFCE", "#006100"
+                            elif "AMARILLO" in st_text or "PRÓXIMO" in st_text or "GESTIÓN" in st_text or "REINSPECCIONAR" in st_text: bg, tx = "#FFEB9C", "#9C5700"
+                            elif "ROJO" in st_text or "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
                         
                         html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                         html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
@@ -359,20 +360,40 @@ if check_password():
             estado_sem_idx = headers.index("ESTADO SEMESTRAL") + 1 if "ESTADO SEMESTRAL" in headers else -1
                 
             for row in range(2, worksheet.max_row + 1):
+                res_idx = row - 2
+                color_code = ""
+                if res_idx >= 0 and res_idx < len(st.session_state.res_lista):
+                    color_code = st.session_state.res_lista[res_idx].get('color', '').upper()
+                    
                 for idx in [estado_idx, estado_sem_idx]:
                     if idx != -1:
                         cell = worksheet.cell(row=row, column=idx)
                         if cell.value:
                             val = str(cell.value).upper()
-                            if "VERDE" in val or "VIGENTE" in val or "APROBADO" in val:
-                                cell.fill = green_fill
-                                cell.font = green_font
-                            elif "AMARILLO" in val or "PRÓXIMO" in val or "GESTIÓN" in val:
-                                cell.fill = yellow_fill
-                                cell.font = yellow_font
-                            elif "ROJO" in val or "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
-                                cell.fill = red_fill
-                                cell.font = red_font
+                            
+                            # Si estamos en la columna de estado principal, usamos el color explícito si existe
+                            if idx == estado_idx and color_code:
+                                if color_code == "VERDE":
+                                    cell.fill = green_fill
+                                    cell.font = green_font
+                                elif color_code == "AMARILLO":
+                                    cell.fill = yellow_fill
+                                    cell.font = yellow_font
+                                elif color_code == "ROJO":
+                                    cell.fill = red_fill
+                                    cell.font = red_font
+                            else:
+                                # Fallback o para la columna de estado semestral
+                                if "VERDE" in val or "VIGENTE" in val or "APROBADO" in val:
+                                    cell.fill = green_fill
+                                    cell.font = green_font
+                                elif "AMARILLO" in val or "PRÓXIMO" in val or "GESTIÓN" in val or "REINSPECCIONAR" in val:
+                                    cell.fill = yellow_fill
+                                    cell.font = yellow_font
+                                elif "ROJO" in val or "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
+                                    cell.fill = red_fill
+                                    cell.font = red_font
+
 
     excel_data = excel_buffer.getvalue()
 
