@@ -24,16 +24,12 @@ def extraer_texto_de_archivo(archivo):
 
 def extraer_internos(texto_sucio):
     """
-    Lógica Híbrida: Separa internos pegados (E040230E061719) 
-    y filtra contra la lista de internos_viejos.txt.
+    Lógica Híbrida: Busca internos nuevos ([EA] + 6 dígitos) y 
+    chequea potenciales internos viejos contra la lista en O(1), preservando el orden original.
     """
     texto_upper = texto_sucio.upper()
     
-    # REGEX RECARGADA: Busca [EA] + 6 dígitos sin límites de palabra
-    patron_nuevo = r'[EA]\d{6}' 
-    encontrados_nuevos = re.findall(patron_nuevo, texto_upper)
-    
-    # Carga de internos_viejos.txt
+    # Carga de internos_viejos.txt en un set para búsqueda ultra rápida
     base_viejos = set()
     ruta_viejos = "internos_viejos.txt"
     if os.path.exists(ruta_viejos):
@@ -43,21 +39,26 @@ def extraer_internos(texto_sucio):
         except Exception as e:
             print(f"Error al leer internos_viejos.txt: {e}")
 
-    # Filtramos y unificamos preservando orden
     resultado = []
     vistos = set()
     
-    # Primero los que cumplen el patrón nuevo
-    for i in encontrados_nuevos:
-        if i not in vistos:
-            resultado.append(i)
-            vistos.add(i)
+    # Expresión regular que captura tanto el formato nuevo pegado como palabras sueltas que podrían ser viejos
+    # [EA]\d{6} captura los nuevos. \b[A-Z0-9]{3,7}\b captura posibles viejos (3 a 7 caracteres alfanuméricos)
+    patron_general = r'[EA]\d{6}|\b[A-Z0-9]{3,7}\b'
+    candidatos = re.findall(patron_general, texto_upper)
+    
+    for c in candidatos:
+        if c in vistos:
+            continue
             
-    # Luego buscamos los viejos por coincidencia exacta de palabra en el texto sucio
-    for viejo in base_viejos:
-        if re.search(rf'\b{re.escape(viejo)}\b', texto_upper) and viejo not in vistos:
-            resultado.append(viejo)
-            vistos.add(viejo)
+        # Es un interno nuevo válido?
+        if re.match(r'^[EA]\d{6}$', c):
+            resultado.append(c)
+            vistos.add(c)
+        # Es un interno viejo válido?
+        elif c in base_viejos:
+            resultado.append(c)
+            vistos.add(c)
             
     return resultado
 
