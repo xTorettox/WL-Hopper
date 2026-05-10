@@ -4,7 +4,7 @@ import logging
 from playwright.sync_api import sync_playwright
 from datetime import datetime
 from utils import analizar_fecha, calcular_vencimiento_semestral
-from gemini_utils import analizar_informe_gemini
+from pdf_utils import analizar_informe_local
 
 class WLHopperBot:
     def __init__(self, headless=True):
@@ -197,9 +197,10 @@ class WLHopperBot:
             log_pasos.append(f"📄 Informe: {'Descargado' if descargo_inf else ('No hallado' if not existe_inf else 'Omitido')}")
             log_pasos.append(f"📜 Certificado: {'Descargado' if descargo_cert else 'Omitido o Vencido'}")
 
-            # --- ANÁLISIS GEMINI (AUDITORÍA DE SEGURIDAD) ---
+            # --- ANÁLISIS PDF (AUDITORÍA DE SEGURIDAD) ---
             observaciones = "-"
-            estado_gemini = None
+            estado_final = "DESCONOCIDO"
+            det_final = "-"
             
             def _parse_date(d_str):
                 try: return datetime.strptime(d_str, "%d/%m/%Y")
@@ -207,26 +208,61 @@ class WLHopperBot:
                 
             fecha_insp_reciente = _parse_date(fila_reciente["insp"])
             fecha_insp_cert = _parse_date(mejor_cert["insp"]) if mejor_cert else datetime.min
+            fecha_venc_cert = _parse_date(mejor_cert["venc"]) if mejor_cert else datetime.min
             
             es_rechazado = False
             if fecha_insp_reciente > fecha_insp_cert and not tiene_cert_reciente:
                 es_rechazado = True
                 
-            if es_rechazado and ruta_informe_descargado:
-                log_pasos.append("🤖 Certificado faltante. Analizando informe con Gemini...")
-                estado_gemini, observaciones = analizar_informe_gemini(ruta_informe_descargado)
-                log_pasos.append(f"🤖 IA Estado: {estado_gemini}")
-                
-            estado_final = estado_f if permitir_descarga_cert else "Vencido"
-            det_final = f"Certificado {estado_f}" if permitir_descarga_cert else f"VENCIDO el {vencimiento_real}"
+            # Calcular días de vigencia del último certificado
+            dias_restantes = (fecha_venc_cert - datetime.now()).days if mejor_cert else -1
+            cert_vigente = dias_restantes >= 0
+            txt_dias = f"{dias_restantes} días de vigencia" if cert_vigente else f"vencido en {mejor_cert['venc']}" if mejor_cert else "sin registro"
             
-            if es_rechazado:
-                estado_final = "⚠️ RECHAZADO / EN PROCESO"
-                det_final = f"ALERTA: Informe del {fila_reciente['insp']} sin certificado. Nota IA: {observaciones}"
-            elif estado_gemini:
-                estado_final = estado_gemini
-                if observaciones != "-":
-                    det_final = observaciones
+            # Analizar el informe si fue descargado
+            estado_ocr = None
+            obs_ocr = ""
+            if es_rechazado and ruta_informe_descargado:
+                log_pasos.append("🤖 Certificado faltante. Analizando informe localmente...")
+                estado_ocr, obs_ocr = analizar_informe_local(ruta_informe_descargado)
+                log_pasos.append(f"🤖 Resultado OCR: {estado_ocr}")
+                
+            if not es_rechazado:
+                # INFORME Y CERTIFICADO EN ÚLTIMA COLUMNA
+                if dias_restantes > 30:
+                    estado_final = "VIGENTE (VERDE)"
+                    det_final = f"{txt_dias}"
+                elif 0 <= dias_restantes <= 30:
+                    estado_final = "PRÓXIMO (AMARILLO)"
+                    det_final = f"{txt_dias}, aviso recertificación"
+                else:
+                    estado_final = "VENCIDO (ROJO)"
+                    det_final = f"certificado vencido en {mejor_cert['venc']}, aviso recertificación urgente" if mejor_cert else "certificado vencido, aviso recertificación urgente"
+            else:
+                # INFORME EN ÚLTIMA COLUMNA SIN CERTIFICADO
+                if cert_vigente:
+                    # 1) Último certificado está vigente
+                    if estado_ocr == "CUMPLE":
+                        estado_final = "EN GESTIÓN (AMARILLO)"
+                        det_final = f"{txt_dias}, Reporte: {obs_ocr}, Esperar carga nuevo certificado"
+                    elif estado_ocr == "NO CUMPLE":
+                        estado_final = "NO CUMPLE (ROJO)"
+                        det_final = f"{txt_dias}, Reporte: {obs_ocr}, Verificar informe, contactar a ST"
+                    else:
+                        estado_final = "VERIFICAR (AMARILLO)"
+                        det_final = f"{txt_dias}, Verificar informe para comprobar resultado de Inspección"
+                else:
+                    # 2) Último certificado NO está vigente
+                    txt_vencido = "Último certificado vencido"
+                    if estado_ocr == "CUMPLE":
+                        estado_final = "EN GESTIÓN (AMARILLO)"
+                        det_final = f"{txt_vencido}, Reporte: {obs_ocr}, Esperar carga nuevo certificado/solicitar provisorio"
+                    elif estado_ocr == "NO CUMPLE":
+                        estado_final = "NO CUMPLE (ROJO)"
+                        det_final = f"{txt_vencido}, Reporte: {obs_ocr}, Verificar informe, contactar a ST"
+                    else:
+                        estado_final = "VERIFICAR (ROJO)"
+                        det_final = f"{txt_vencido}, Verificar informe para comprobar resultado de Inspección"
 
             return {
                 "status": estado_final,
