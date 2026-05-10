@@ -205,6 +205,7 @@ if check_password():
                         texto_imagen_limpio = " ".join(texto_corregido)
                         texto_base += " " + texto_imagen_limpio
                         st.session_state.log_history.append("🤖 Texto extraído de la imagen exitosamente.")
+                        st.session_state.log_history.append(f"🐛 Debug OCR: {texto_imagen_limpio}")
                     except Exception as e:
                         st.session_state.log_history.append(f"❌ Error de OCR: {e}")
                 else:
