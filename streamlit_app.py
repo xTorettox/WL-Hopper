@@ -47,6 +47,18 @@ st.markdown(f"""
     div.stButton > button:first-child {{ background-color: {VERDE_SULLAIR} !important; color: white !important; font-weight: bold; }}
     .log-entry {{ margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }}
     .logo-container {{ display: flex; justify-content: center; align-items: center; flex-direction: column; margin-bottom: 10px; }}
+    
+    @keyframes ellipsis {{
+      0% {{ content: ""; }}
+      25% {{ content: "."; }}
+      50% {{ content: ".."; }}
+      75% {{ content: "..."; }}
+      100% {{ content: ""; }}
+    }}
+    .loading-dots::after {{
+      content: "";
+      animation: ellipsis 1.5s infinite;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -152,13 +164,13 @@ if check_password():
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.")
     
         st.markdown("##### Listado de Internos")
-        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
+        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o imagen", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
         
         # --- LÓGICA DE COMPONENTE PORTAPAPELES (LIBRERÍA EXTERNA) ---
         try:
             from streamlit_paste_button import paste_image_button
             paste_result = paste_image_button(
-                label="📋 Pegar Imagen del Portapapeles",
+                label="📋 Pegar Imagen desde el Portapapeles",
                 background_color="#008657",
                 hover_background_color="#006644"
             )
@@ -170,7 +182,7 @@ if check_password():
                     buf.name = "pasted_image.png"
                     buf.type = "image/png"
                     archivo_subido = buf
-                    st.success("✅ Imagen pegada cargada correctamente.")
+                    st.success("✅ Imagen cargada correctamente.")
         except ImportError:
             pass
 
@@ -232,6 +244,9 @@ if check_password():
                             for char in ['£', '€', 'È', 'É']:
                                 p = p.replace(char, 'E')
                                 
+                            import re
+                            p = re.sub(r'[^A-Z0-9]', '', p) # Eliminar pipes, comas, corchetes pegados
+                                
                             # 2. Corregir prefijo OCR específico si empieza mal
                             if p and p.startswith('3'):
                                 p = 'E' + p[1:]
@@ -262,9 +277,12 @@ if check_password():
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar.")
                 render_terminal()
             else:
+                st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
+                render_terminal()
+                
                 bot = WLHopperBot(headless=True)
                 if bot.iniciar(user, pw):
-                    st.session_state.log_history.append("🔐 Login exitoso.")
+                    st.session_state.log_history[-1] = "🔐 Login exitoso."
                     render_terminal()
                     
                     res_lista = []
