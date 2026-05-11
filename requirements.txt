@@ -6,3 +6,4 @@ openpyxl
 PyMuPDF
 pytesseract
 Pillow
+streamlit-paste-button==0.1.2
