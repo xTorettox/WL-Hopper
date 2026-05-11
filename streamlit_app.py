@@ -164,15 +164,16 @@ if check_password():
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.")
     
         st.markdown("##### Listado de Internos")
-        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o imagen", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
+        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
         
         # --- LÓGICA DE COMPONENTE PORTAPAPELES (LIBRERÍA EXTERNA) ---
         try:
             from streamlit_paste_button import paste_image_button
             paste_result = paste_image_button(
-                label="📋 Pegar Imagen desde el Portapapeles",
+                label="📋 Pegar Imagen del Portapapeles",
                 background_color="#008657",
-                hover_background_color="#006644"
+                hover_background_color="#006644",
+                key=f"paste_btn_{st.session_state.get('paste_key', 0)}"
             )
             if paste_result and paste_result.image_data is not None:
                 if not archivo_subido:
@@ -182,7 +183,7 @@ if check_password():
                     buf.name = "pasted_image.png"
                     buf.type = "image/png"
                     archivo_subido = buf
-                    st.success("✅ Imagen cargada correctamente.")
+                    st.success("✅ Imagen pegada cargada correctamente.")
         except ImportError:
             pass
 
@@ -289,18 +290,9 @@ if check_password():
                     for int_id in lista:
                         st.session_state.log_history.append(f"--- Procesando {int_id} ---")
                         render_terminal()
-                        res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf)
+                        res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral)
                         res['id'] = int_id
                         
-                        # Vencimiento Semestral
-                        if es_semestral:
-                            est_sem, fec_sem = calcular_vencimiento_semestral(res["insp"])
-                            res["est_sem"] = est_sem
-                            res["venc_sem"] = fec_sem
-                        else:
-                            res["est_sem"] = "-"
-                            res["venc_sem"] = "-"
-                            
                         res_lista.append(res)
                         for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
                         render_terminal()
@@ -311,12 +303,12 @@ if check_password():
                     st.session_state.res_lista = res_lista
                     st.session_state.proceso_completo = True
                     st.session_state.hay_archivos = len(os.listdir(ruta_temp)) > 0 if os.path.exists(ruta_temp) else False
+                    st.session_state.paste_key = st.session_state.get('paste_key', 0) + 1 # Resetear portapapeles
         
                     # Generación de HTML
-                    th_semestral = "<th>VENC. SEMESTRAL</th><th>ESTADO SEMESTRAL</th>" if es_semestral else ""
                     html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; padding: 10px 20px; }}</style>
                     <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">
-                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th>{th_semestral}<th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
+                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
                     
                     excel_data = []
                     for r in res_lista:
@@ -333,14 +325,6 @@ if check_password():
                         
                         html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                         html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
-                        
-                        if es_semestral:
-                            bg_sem, tx_sem = "#FFFFFF", "#000000"
-                            if "VIGENTE" in r["est_sem"]: bg_sem, tx_sem = "#C6EFCE", "#006100"
-                            elif "PRÓXIMO" in r["est_sem"]: bg_sem, tx_sem = "#FFEB9C", "#9C5700"
-                            elif "VENCIDO" in r["est_sem"]: bg_sem, tx_sem = "#FFC7CE", "#9C0006"
-                            html += f'<td>{r["venc_sem"]}</td><td style="background-color: {bg_sem}; color: {tx_sem}; font-weight: bold;">{r["est_sem"]}</td>'
-                        
                         html += f'<td>{cert_val}</td><td>{r["inf"]}</td>'
                         html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs_final", "-")}</td>'
                         html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
@@ -348,9 +332,6 @@ if check_password():
                         row_dict = {
                             "INTERNO": r["id"], "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO": r["venc"]
                         }
-                        if es_semestral:
-                            row_dict["VENC. SEMESTRAL"] = r["venc_sem"]
-                            row_dict["ESTADO SEMESTRAL"] = r["est_sem"]
                             
                         row_dict.update({
                             "CERTIFICADO": cert_val, "INFORME": r["inf"], 
@@ -395,22 +376,34 @@ if check_password():
             header_fill = PatternFill(start_color="008657", end_color="008657", fill_type="solid")
             header_font = Font(color="FFFFFF", bold=True)
             
-            for cell in worksheet[1]:
+            if es_semestral:
+                worksheet.insert_rows(1)
+                worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(worksheet[2]))
+                title_cell = worksheet.cell(row=1, column=1)
+                title_cell.value = "⚠️ REPORTE DE VENCIMIENTOS SEMESTRALES (180 DÍAS)"
+                title_cell.font = Font(bold=True, size=14, color="FFFFFF")
+                title_cell.fill = header_fill
+                title_cell.alignment = Alignment(horizontal="center", vertical="center")
+                header_row = 2
+                worksheet.row_dimensions[1].height = 25
+            else:
+                header_row = 1
+            
+            for cell in worksheet[header_row]:
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal="center")
             
-            headers = [cell.value for cell in worksheet[1]]
+            headers = [cell.value for cell in worksheet[header_row]]
             estado_idx = headers.index("ESTADO") + 1 if "ESTADO" in headers else -1
-            estado_sem_idx = headers.index("ESTADO SEMESTRAL") + 1 if "ESTADO SEMESTRAL" in headers else -1
                 
-            for row in range(2, worksheet.max_row + 1):
-                res_idx = row - 2
+            for row in range(header_row + 1, worksheet.max_row + 1):
+                res_idx = row - (header_row + 1)
                 color_code = ""
                 if res_idx >= 0 and res_idx < len(st.session_state.res_lista):
                     color_code = st.session_state.res_lista[res_idx].get('color', '').upper()
                     
-                for idx in [estado_idx, estado_sem_idx]:
+                for idx in [estado_idx]:
                     if idx != -1:
                         cell = worksheet.cell(row=row, column=idx)
                         if cell.value:
