@@ -168,7 +168,7 @@ if check_password():
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.")
     
         st.markdown("##### Listado de Internos")
-        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
+        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o imagen", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
         
         # --- LÓGICA DE COMPONENTE PORTAPAPELES (LIBRERÍA EXTERNA) ---
         try:
@@ -187,7 +187,7 @@ if check_password():
                     buf.name = "pasted_image.png"
                     buf.type = "image/png"
                     archivo_subido = buf
-                    st.success("✅ Imagen pegada cargada correctamente.")
+                    st.success("✅ Imagen cargada correctamente.")
         except ImportError:
             pass
 
