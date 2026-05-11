@@ -28,9 +28,14 @@ st.markdown(f"""
         background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
         font-size: 13px; padding: 15px; border-radius: 5px; 
         overflow-y: auto; border: 1px solid #444;
-        position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100%;
+        position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100%; min-height: 535px;
     }}
         
+    /* Para que col_right herede la altura de col_left automáticamente */
+    [data-testid="stHorizontalBlock"] {{
+        align-items: stretch;
+    }}
+    
     /* Forzar a las columnas a ser contenedores relativos */
     [data-testid="stColumn"] {{
         position: relative;
@@ -141,7 +146,7 @@ if check_password():
     if "res_lista" not in st.session_state: st.session_state.res_lista = []
     
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-    c_l1, c_l2, c_l3 = st.columns([1, 2, 1])
+    c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
     with c_l2: 
         try:
             st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
