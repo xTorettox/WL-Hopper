@@ -157,9 +157,12 @@ if check_password():
         # --- LÓGICA DE COMPONENTE PORTAPAPELES ---
         pasted_b64 = None
         try:
-            _paste_interceptor = components.declare_component("paste_interceptor", path="paste_component")
+            import os
+            component_dir = os.path.join(os.path.dirname(__file__), "paste_component")
+            _paste_interceptor = components.declare_component("paste_interceptor", path=component_dir)
             pasted_b64 = _paste_interceptor(key="clipboard_paste")
-        except:
+        except Exception as e:
+            # st.error(f"Error cargando componente: {e}") # Opcional para debug
             pass
 
         if pasted_b64 and pasted_b64.startswith("data:image"):
