@@ -154,36 +154,30 @@ if check_password():
         st.markdown("##### Listado de Internos")
         archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
         
-        # --- LÓGICA DE COMPONENTE PORTAPAPELES ---
-        pasted_b64 = None
+        # --- LÓGICA DE COMPONENTE PORTAPAPELES (LIBRERÍA EXTERNA) ---
         try:
-            import os
-            component_dir = os.path.join(os.path.dirname(__file__), "paste_component")
-            _paste_interceptor = components.declare_component("paste_interceptor", path=component_dir)
-            pasted_b64 = _paste_interceptor(key="clipboard_paste")
-        except Exception as e:
-            # st.error(f"Error cargando componente: {e}") # Opcional para debug
-            pass
-
-        if pasted_b64 and pasted_b64.startswith("data:image"):
-            if st.session_state.get("ignorar_paste") != pasted_b64:
-                import base64
-                header, encoded = pasted_b64.split(",", 1)
-                image_data = base64.b64decode(encoded)
-                class PastedFile:
-                    def __init__(self, data):
-                        self.data = data
-                        self.name = "pasted_image.png"
-                        self.type = "image/png"
-                    def read(self): return self.data
-                    def getvalue(self): return self.data
-                
+            from streamlit_paste_button import paste_image_button
+            paste_result = paste_image_button(
+                label="📋 Pegar Imagen del Portapapeles",
+                background_color="#008657",
+                hover_background_color="#006644"
+            )
+            if paste_result and paste_result.image_data is not None:
                 if not archivo_subido:
+                    class PastedFile:
+                        def __init__(self, data):
+                            self.data = data
+                            self.name = "pasted_image.png"
+                            self.type = "image/png"
+                        def read(self): return self.data
+                        def getvalue(self): return self.data
+                    
+                    import base64
+                    image_data = base64.b64decode(paste_result.image_data.split(',')[1])
                     archivo_subido = PastedFile(image_data)
-                    st.success("✅ Imagen desde el portapapeles detectada.")
-                    if st.button("❌ Descartar imagen pegada"):
-                        st.session_state.ignorar_paste = pasted_b64
-                        st.rerun()
+                    st.success("✅ Imagen pegada cargada correctamente.")
+        except ImportError:
+            pass
 
         if archivo_subido and archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
             st.info("⚠️ **Función Experimental:** La extracción de texto desde imagen (OCR) puede requerir revisión manual.")
