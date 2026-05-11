@@ -23,22 +23,32 @@ st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/fa
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* Terminal ocupando el 100% de su contenedor padre y con scroll */
+    /* Base de la terminal */
     .terminal-box {{
         background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
         font-size: 13px; padding: 15px; border-radius: 5px; 
         overflow-y: auto; border: 1px solid #444;
-        position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100%; min-height: 535px;
-    }}
-        
-    /* Para que col_right herede la altura de col_left automáticamente */
-    [data-testid="stHorizontalBlock"] {{
-        align-items: stretch;
     }}
     
-    /* Forzar a las columnas a ser contenedores relativos */
-    [data-testid="stColumn"] {{
-        position: relative;
+    /* Layout exclusivo para Desktop (pantallas anchas) */
+    @media (min-width: 768px) {{
+        .terminal-box {{
+            position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100%; min-height: 535px;
+        }}
+        [data-testid="stHorizontalBlock"] {{
+            align-items: stretch;
+        }}
+        [data-testid="stColumn"] {{
+            position: relative;
+        }}
+    }}
+    
+    /* Layout para Móviles */
+    @media (max-width: 767px) {{
+        .terminal-box {{
+            height: 400px;
+            margin-top: 10px;
+        }}
     }}
     
     /* Estilo para que el botón deshabilitado no flote */
@@ -168,7 +178,7 @@ if check_password():
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.")
     
         st.markdown("##### Listado de Internos")
-        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o imagen", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
+        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
         
         # --- LÓGICA DE COMPONENTE PORTAPAPELES (LIBRERÍA EXTERNA) ---
         try:
@@ -187,7 +197,7 @@ if check_password():
                     buf.name = "pasted_image.png"
                     buf.type = "image/png"
                     archivo_subido = buf
-                    st.success("✅ Imagen cargada correctamente.")
+                    st.success("✅ Imagen pegada cargada correctamente.")
         except ImportError:
             pass
 
