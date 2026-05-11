@@ -164,17 +164,12 @@ if check_password():
             )
             if paste_result and paste_result.image_data is not None:
                 if not archivo_subido:
-                    class PastedFile:
-                        def __init__(self, data):
-                            self.data = data
-                            self.name = "pasted_image.png"
-                            self.type = "image/png"
-                        def read(self): return self.data
-                        def getvalue(self): return self.data
-                    
-                    import base64
-                    image_data = base64.b64decode(paste_result.image_data.split(',')[1])
-                    archivo_subido = PastedFile(image_data)
+                    import io
+                    buf = io.BytesIO()
+                    paste_result.image_data.save(buf, format="PNG")
+                    buf.name = "pasted_image.png"
+                    buf.type = "image/png"
+                    archivo_subido = buf
                     st.success("✅ Imagen pegada cargada correctamente.")
         except ImportError:
             pass
