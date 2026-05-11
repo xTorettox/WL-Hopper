@@ -153,8 +153,38 @@ if check_password():
     
         st.markdown("##### Listado de Internos")
         archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
+        
+        # --- LÓGICA DE COMPONENTE PORTAPAPELES ---
+        pasted_b64 = None
+        try:
+            _paste_interceptor = components.declare_component("paste_interceptor", path="paste_component")
+            pasted_b64 = _paste_interceptor(key="clipboard_paste")
+        except:
+            pass
+
+        if pasted_b64 and pasted_b64.startswith("data:image"):
+            if st.session_state.get("ignorar_paste") != pasted_b64:
+                import base64
+                header, encoded = pasted_b64.split(",", 1)
+                image_data = base64.b64decode(encoded)
+                class PastedFile:
+                    def __init__(self, data):
+                        self.data = data
+                        self.name = "pasted_image.png"
+                        self.type = "image/png"
+                    def read(self): return self.data
+                    def getvalue(self): return self.data
+                
+                if not archivo_subido:
+                    archivo_subido = PastedFile(image_data)
+                    st.success("✅ Imagen desde el portapapeles detectada.")
+                    if st.button("❌ Descartar imagen pegada"):
+                        st.session_state.ignorar_paste = pasted_b64
+                        st.rerun()
+
         if archivo_subido and archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
             st.info("⚠️ **Función Experimental:** La extracción de texto desde imagen (OCR) puede requerir revisión manual.")
+            
         texto_internos = st.text_area("O pegá el texto acá:", height=115, placeholder="E040230, 3797...")
         btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
     
