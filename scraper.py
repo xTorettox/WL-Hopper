@@ -72,7 +72,7 @@ class WLHopperBot:
             print(f"Error en Login: {e}")
             return False
 
-    def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe):
+    def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe, es_semestral=False):
         try:
             # Limpieza y búsqueda del interno
             buscador = self.page.get_by_role("textbox", name="Buscar")
@@ -214,11 +214,6 @@ class WLHopperBot:
             if fecha_insp_reciente > fecha_insp_cert and not tiene_cert_reciente:
                 es_rechazado = True
                 
-            # Calcular días de vigencia del último certificado
-            dias_restantes = (fecha_venc_cert - datetime.now()).days if mejor_cert else -1
-            cert_vigente = dias_restantes >= 0
-            txt_dias = f"{dias_restantes} días de vigencia" if cert_vigente else f"vencido en {mejor_cert['venc']}" if mejor_cert else "sin registro"
-            
             # Analizar el informe si fue descargado
             estado_ocr = None
             obs_ocr = ""
@@ -226,6 +221,40 @@ class WLHopperBot:
                 log_pasos.append("🤖 Certificado faltante. Analizando informe localmente...")
                 estado_ocr, obs_ocr = analizar_informe_local(ruta_informe_descargado)
                 log_pasos.append(f"🤖 Resultado OCR: {estado_ocr}")
+                
+            # --- MODIFICACIÓN LÓGICA SEMESTRAL Y CORRECCIÓN DE FECHAS ---
+            # Si la inspección falló, Worklift carga una fecha falsa +1 año.
+            # Lo corregimos usando la fecha del último certificado real.
+            if es_rechazado and estado_ocr == "NO CUMPLE":
+                fecha_venc_base = fecha_venc_cert
+                venc_mostrar = mejor_cert["venc"] if mejor_cert else "-"
+            else:
+                fecha_venc_base = _parse_date(fila_reciente["venc"])
+                venc_mostrar = fila_reciente["venc"]
+                
+            if es_semestral:
+                # La vigencia es 180 días desde la inspección válida
+                if not es_rechazado or (es_rechazado and estado_ocr == "CUMPLE"):
+                    base_insp = fecha_insp_reciente
+                else:
+                    base_insp = fecha_insp_cert
+                    
+                if base_insp != datetime.min:
+                    fecha_venc_base = base_insp + timedelta(days=180)
+                    venc_mostrar = fecha_venc_base.strftime("%d/%m/%Y")
+                else:
+                    fecha_venc_base = datetime.min
+                    venc_mostrar = "-"
+                    
+            # Recalcular días de vigencia con la fecha corregida
+            if fecha_venc_base != datetime.min:
+                dias_restantes = (fecha_venc_base - datetime.now()).days
+                cert_vigente = dias_restantes >= 0
+                txt_dias = f"{dias_restantes} días de vigencia" if cert_vigente else f"vencido en {venc_mostrar}"
+            else:
+                dias_restantes = -1
+                cert_vigente = False
+                txt_dias = "sin registro"
                 
             if not es_rechazado:
                 # Caso A: INFORME Y CERTIFICADO EN ÚLTIMA COLUMNA
@@ -241,7 +270,7 @@ class WLHopperBot:
                     color_final = "AMARILLO"
                 else:
                     estado_final = "VENCIDO"
-                    obs_final = f"Último certificado vencido en {mejor_cert['venc']}." if mejor_cert else "Último certificado vencido."
+                    obs_final = f"Último certificado vencido en {venc_mostrar}." if venc_mostrar != "-" else "Último certificado vencido."
                     accion_final = "Coordinar recertificación urgente"
                     color_final = "ROJO"
             else:
@@ -284,7 +313,7 @@ class WLHopperBot:
             return {
                 "status": estado_final,
                 "insp": fila_reciente["insp"],
-                "venc": fila_reciente["venc"],
+                "venc": venc_mostrar,
                 "cert": "SI" if descargo_cert else "NO",
                 "inf": "SI" if existe_inf else "NO",
                 "obs_final": obs_final,
