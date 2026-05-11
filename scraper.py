@@ -2,7 +2,7 @@ import os
 import requests
 import logging
 from playwright.sync_api import sync_playwright
-from datetime import datetime
+from datetime import datetime, timedelta
 from utils import analizar_fecha, calcular_vencimiento_semestral
 from pdf_utils import analizar_informe_local
 
