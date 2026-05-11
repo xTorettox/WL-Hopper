@@ -23,19 +23,17 @@ st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/fa
 VERDE_SULLAIR = "#008657"
 st.markdown(f"""
     <style>
-    /* Terminal alineada a la base del botón 'Comenzar' */
+    /* Terminal ocupando el 100% de su contenedor padre y con scroll */
     .terminal-box {{
         background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
-        font-size: 13px; padding: 15px; border-radius: 5px; height: 522px; 
+        font-size: 13px; padding: 15px; border-radius: 5px; 
         overflow-y: auto; border: 1px solid #444;
+        position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100%;
     }}
         
     /* Forzar a las columnas a ser contenedores relativos */
     [data-testid="stColumn"] {{
         position: relative;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
     }}
     
     /* Estilo para que el botón deshabilitado no flote */
@@ -142,18 +140,19 @@ if check_password():
     if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
     if "res_lista" not in st.session_state: st.session_state.res_lista = []
     
+    st.markdown('<div class="logo-container">', unsafe_allow_html=True)
+    c_l1, c_l2, c_l3 = st.columns([1, 2, 1])
+    with c_l2: 
+        try:
+            st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
+        except:
+            pass
+    st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px; margin-bottom: 25px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     col_left, col_right = st.columns([1, 1.2], gap="large")
     
     with col_left:
-        st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-        c_l1, c_l2, c_l3 = st.columns([1, 2, 1])
-        with c_l2: 
-            try:
-                st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
-            except:
-                pass
-        st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
         
         with st.container(border=True):
             user = st.text_input("Usuario (Email)", key="user_email")
@@ -194,10 +193,10 @@ if check_password():
         btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
     
     with col_right:
-        st.markdown("##### Registro de Actividad")
         terminal_placeholder = st.empty()
         def render_terminal():
             html = f'<div class="terminal-box">'
+            html += f'<div style="font-weight: bold; font-family: sans-serif; font-size: 1.1rem; color: #ddd; margin-bottom: 10px; border-bottom: 1px solid #555; padding-bottom: 5px;">Registro de Actividad</div>'
             for entry in st.session_state.log_history:
                 # Colores basados en íconos
                 color = "#f8f9fa"
