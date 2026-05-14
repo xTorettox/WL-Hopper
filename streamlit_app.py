@@ -5,6 +5,7 @@ import pandas as pd
 import zipfile
 from io import BytesIO
 from scraper import WLHopperBot
+from bureau_veritas_bot import BureauVeritasBot
 from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimiento_semestral, asegurar_carpeta
 import streamlit.components.v1 as components
 import pytesseract
@@ -145,6 +146,7 @@ if check_password():
     with st.sidebar:
         st.markdown("### 🛠️ Opciones")
         st.button("Cerrar Sesión", on_click=lambda: st.session_state.clear(), use_container_width=True)
+        st.text_input("Nombre del ZIP", value="certificados_hopper", key="zip_name", help="Nombre del archivo ZIP a descargar")
         if st.button("Acerca del Proyecto", use_container_width=True):
             mostrar_about()
     
@@ -176,6 +178,8 @@ if check_password():
             bajar_cert = c1.checkbox("Descargar Certificados", value=True)
             bajar_inf = c2.checkbox("Descargar Informes", value=False)
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.")
+            bv_user = st.text_input("Usuario BV (fallback)", key="bv_user")
+            bv_pw = st.text_input("Contraseña BV", type="password", key="bv_pw")
     
         st.markdown("##### Listado de Internos")
         archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
@@ -306,23 +310,64 @@ if check_password():
                         render_terminal()
                         res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral)
                         res['id'] = int_id
+                        res['fuente'] = 'Worklift'
                         
                         res_lista.append(res)
                         for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
                         render_terminal()
         
                     bot.cerrar()
-                    st.session_state.log_history.append("🔓 Sesión cerrada correctamente.")
+                    st.session_state.log_history.append("🔓 Sesión WL cerrada correctamente.")
+
+                    # --- FALLBACK A BUREAU VERITAS ---
+                    bv_user = st.session_state.get('bv_user', '')
+                    bv_pw = st.session_state.get('bv_pw', '')
+                    if bv_user and bv_pw:
+                        internos_sin_cert = [r for r in res_lista if r['cert'] == 'NO']
+                        if internos_sin_cert:
+                            st.session_state.log_history.append(f"🔄 Buscando {len(internos_sin_cert)} internos sin certificado en Bureau Veritas...")
+                            render_terminal()
+                            bv_bot = BureauVeritasBot(headless=True)
+                            if bv_bot.iniciar(bv_user, bv_pw):
+                                for res in internos_sin_cert:
+                                    int_id = res['id']
+                                    st.session_state.log_history.append(f"--- {int_id} en BV ---")
+                                    render_terminal()
+                                    bv_res = bv_bot.procesar_interno(int_id, ruta_temp)
+                                    if bv_res['cert'] == 'SI':
+                                        res['cert'] = 'SI'
+                                        res['fuente'] = 'Bureau Veritas'
+                                        res['status'] = bv_res['status']
+                                        res['venc'] = bv_res.get('venc', '-')
+                                        res['insp'] = bv_res.get('insp', '-')
+                                        res['obs_final'] = bv_res.get('obs_final', '-')
+                                        res['accion_final'] = bv_res.get('accion_final', '-')
+                                        res['color'] = bv_res.get('color', '')
+                                        for m in bv_res.get('log', []):
+                                            st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
+                                    else:
+                                        for m in bv_res.get('log', []):
+                                            st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
+                                    render_terminal()
+                                bv_bot.cerrar()
+                                st.session_state.log_history.append("🔓 Sesión BV cerrada.")
+                            else:
+                                st.session_state.log_history.append("❌ No se pudo iniciar sesión en Bureau Veritas.")
+
+                    for res in res_lista:
+                        if res['cert'] == 'NO':
+                            res['fuente'] = 'No disponible'
+
                     st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
                     st.session_state.res_lista = res_lista
                     st.session_state.proceso_completo = True
                     st.session_state.hay_archivos = len(os.listdir(ruta_temp)) > 0 if os.path.exists(ruta_temp) else False
-                    st.session_state.paste_key = st.session_state.get('paste_key', 0) + 1 # Resetear portapapeles
+                    st.session_state.paste_key = st.session_state.get('paste_key', 0) + 1
         
                     # Generación de HTML
                     html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; padding: 10px 20px; }}</style>
                     <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">
-                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
+                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>FUENTE</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
                     
                     excel_data = []
                     for r in res_lista:
@@ -339,12 +384,14 @@ if check_password():
                         
                         html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                         html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
+                        html += f'<td>{r.get("fuente", "Worklift")}</td>'
                         html += f'<td>{cert_val}</td><td>{r["inf"]}</td>'
                         html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs_final", "-")}</td>'
                         html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
                         
                         row_dict = {
-                            "INTERNO": r["id"], "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO": r["venc"]
+                            "INTERNO": r["id"], "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"],
+                            "VENCIMIENTO": r["venc"], "FUENTE": r.get("fuente", "Worklift")
                         }
                             
                         row_dict.update({
@@ -548,7 +595,7 @@ if check_password():
         st.download_button(
             "📂 Descargar Archivo ZIP", 
             data=z_buf.getvalue(), 
-            file_name="certificados.zip", 
+            file_name=f"{st.session_state.get('zip_name', 'certificados_hopper')}.zip", 
             disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
             use_container_width=True
         )
