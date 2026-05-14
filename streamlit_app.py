@@ -14,6 +14,30 @@ from PIL import Image, ImageEnhance
 from cryptography.fernet import Fernet
 from supabase import create_client
 
+# --- DIAGNÓSTICO DE EMERGENCIA ---
+try:
+    st.write("🔍 Verificando llaves...")
+    keys = list(st.secrets.keys())
+    st.write(f"Llaves encontradas: {keys}")
+    
+    # Probamos el cifrado rápido
+    from cryptography.fernet import Fernet
+    test_key = st.secrets["FERNET_KEY"].encode()
+    test_cipher = Fernet(test_key)
+    st.success("✅ Cifrado OK")
+    
+    # Probamos conexión a DB
+    st.write("📡 Conectando a Supabase...")
+    from supabase import create_client
+    test_db = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    st.success("✅ Supabase conectado")
+
+except Exception as e:
+    st.error(f"❌ ERROR CRÍTICO EN EL ARRANQUE: {e}")
+    st.stop() # Detenemos todo para ver el error
+
+# ACA TERMINA EL DEBUG
+
 # --- CONFIGURACIÓN DE SEGURIDAD Y DB ---
 # La FERNET_KEY debe estar en st.secrets
 FERNET_KEY = st.secrets["FERNET_KEY"].encode()
