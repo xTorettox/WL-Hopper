@@ -88,7 +88,7 @@ def check_password():
 if check_password():
     # --- SIDEBAR (ORIGINAL + MODO PRUEBAS) ---
     with st.sidebar:
-        st.image("img/sullair_logo.png", width=150)
+        st.image("img/WL Hopper Logo - nspc.png", width=150)
         st.title("Opciones")
         if st.session_state["logged_user"] == "fcendra":
             st.divider()
