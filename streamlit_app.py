@@ -15,6 +15,50 @@ import utils
 importlib.reload(utils)
 from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimiento_semestral, asegurar_carpeta
 
+from supabase import create_client, Client
+from cryptography.fernet import Fernet
+from datetime import datetime
+
+# --- CONFIGURACIÓN BÚNKER DE SEGURIDAD Y BD ---
+try:
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    
+    FERNET_KEY = st.secrets["FERNET_KEY"].encode()
+    cipher_suite = Fernet(FERNET_KEY)
+except Exception as e:
+    st.error(f"Error cargando secrets: {e}")
+    supabase = None
+    cipher_suite = None
+
+def encriptar(texto):
+    if not texto or not cipher_suite: return ""
+    return cipher_suite.encrypt(texto.encode()).decode()
+
+def desencriptar(texto_cifrado):
+    if not texto_cifrado or not cipher_suite: return ""
+    try:
+        return cipher_suite.decrypt(texto_cifrado.encode()).decode()
+    except:
+        return ""
+
+def registrar_metrica(interno, fuente):
+    if not supabase: return
+    try:
+        minutos = 5
+        data = {
+            "usuario": st.session_state.get("logged_user", "desconocido"),
+            "equipo": interno,
+            "fuente": fuente,
+            "fecha": datetime.now().isoformat(),
+            "minutos_ahorrados": minutos
+        }
+        supabase.table("metricas").insert(data).execute()
+    except Exception as e:
+        print(f"Error registrando métrica: {e}")
+
+
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
 
@@ -83,7 +127,19 @@ def check_password():
         if st.session_state["username"] in st.secrets["passwords"] and \
            st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
             st.session_state["password_correct"] = True
+            st.session_state["logged_user"] = st.session_state["username"]
             del st.session_state["password"]  # Borramos la clave por seguridad
+            
+            # Fetch credenciales desde Supabase
+            if supabase:
+                try:
+                    res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", st.session_state["logged_user"]).eq("sitio", "WL").execute()
+                    if res.data and len(res.data) > 0:
+                        cred = res.data[0]
+                        st.session_state["wl_user"] = desencriptar(cred.get("user_enc", ""))
+                        st.session_state["wl_pw"] = desencriptar(cred.get("pass_enc", ""))
+                except Exception as e:
+                    print(f"Error fetching credentials: {e}")
         else:
             st.session_state["password_correct"] = False
 
@@ -121,6 +177,22 @@ if check_password():
         window.parent.postMessage({type: 'streamlit:setComponentValue', value: isMobile}, '*');
         </script>
     """, height=0)
+
+    # --- ADMIN DASHBOARD (SIDEBAR) ---
+    if st.session_state.get("logged_user") == "fcendra" and supabase:
+        with st.sidebar:
+            st.markdown("### ⚙️ Panel de Admin")
+            try:
+                # supabase python no siempre retorna count de manera facil, traemos data
+                res_met = supabase.table("metricas").select("minutos_ahorrados").execute()
+                total_items = len(res_met.data) if res_met.data else 0
+                total_minutos = sum(item.get("minutos_ahorrados", 0) for item in res_met.data) if res_met.data else 0
+                horas_ahorradas = total_minutos / 60
+                
+                st.metric("🤖 Total Ejecuciones", total_items)
+                st.metric("⏳ Tiempo Ahorrado", f"{horas_ahorradas:.1f} hs")
+            except Exception as e:
+                st.error(f"Error cargando métricas: {e}")
 
     @st.dialog("Acerca de WL Hopper")
     def mostrar_about():
@@ -168,17 +240,62 @@ if check_password():
     st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px; margin-bottom: 25px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
+    with st.expander("🔐 Credenciales de Worklift"):
+        st.write("Guarda tus credenciales de Worklift de forma segura y cifrada.")
+        c_cred1, c_cred2 = st.columns(2)
+        default_user = st.session_state.get("wl_user", "")
+        default_pw = st.session_state.get("wl_pw", "")
+        new_user = c_cred1.text_input("Usuario Worklift", value=default_user, key="input_wl_user")
+        new_pw = c_cred2.text_input("Contraseña Worklift", value=default_pw, type="password", key="input_wl_pw")
+        
+        if st.button("💾 Guardar Credenciales"):
+            if supabase:
+                try:
+                    enc_u = encriptar(new_user)
+                    enc_p = encriptar(new_pw)
+                    logged_usr = st.session_state.get("logged_user", "")
+                    
+                    # Chequear si existe para hacer update o insert (upsert en supabase)
+                    res_check = supabase.table("credenciales_sitios").select("id").eq("usuario_app", logged_usr).eq("sitio", "WL").execute()
+                    
+                    if res_check.data and len(res_check.data) > 0:
+                        # Update
+                        supabase.table("credenciales_sitios").update({
+                            "user_enc": enc_u,
+                            "pass_enc": enc_p
+                        }).eq("usuario_app", logged_usr).eq("sitio", "WL").execute()
+                    else:
+                        # Insert
+                        supabase.table("credenciales_sitios").insert({
+                            "usuario_app": logged_usr,
+                            "sitio": "WL",
+                            "user_enc": enc_u,
+                            "pass_enc": enc_p
+                        }).execute()
+                    
+                    st.session_state["wl_user"] = new_user
+                    st.session_state["wl_pw"] = new_pw
+                    st.success("Credenciales cifradas y guardadas en la nube correctamente.")
+                except Exception as e:
+                    st.error(f"Error al guardar credenciales: {e}")
+            else:
+                st.error("No hay conexión con la base de datos.")
+    
     col_left, col_right = st.columns([1, 1.2], gap="large")
     
     with col_left:
         
         with st.container(border=True):
-            user = st.text_input("Usuario (Email)", key="user_email")
-            pw = st.text_input("Contraseña", type="password", key="user_pw")
+            user = st.text_input("Usuario (Email)", value=st.session_state.get("wl_user", ""), key="user_email")
+            pw = st.text_input("Contraseña", value=st.session_state.get("wl_pw", ""), type="password", key="user_pw")
             c1, c2 = st.columns(2)
             bajar_cert = c1.checkbox("Descargar Certificados", value=True)
             bajar_inf = c2.checkbox("Descargar Informes", value=False)
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.")
+            modo_pruebas = False
+            if st.session_state.get("logged_user") == "fcendra":
+                modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True)
     
         st.markdown("##### Listado de Internos")
         archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
@@ -262,7 +379,7 @@ if check_password():
         terminal_placeholder = st.empty()
         def render_terminal():
             html = f'<div class="terminal-box">'
-            html += f'<div style="font-weight: bold; font-family: sans-serif; font-size: 1.1rem; color: #ddd; margin-bottom: 10px; border-bottom: 1px solid #555; padding-bottom: 5px;">Registro de Actividad</div>'
+            html += f'<div style="font-family: \'Consolas\', monospace; font-weight: bold; font-size: 1.1rem; color: #50fa7b; margin-bottom: 10px; border-bottom: 1px dashed #555; padding-bottom: 5px;">&gt;_ REGISTRO DE ACTIVIDAD</div>'
             for entry in st.session_state.log_history:
                 # Colores basados en íconos
                 color = "#f8f9fa"
@@ -320,6 +437,11 @@ if check_password():
                         
                         res_lista.append(res)
                         for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
+                        
+                        # Inyección de métricas (si no es prueba y no falló por completo)
+                        if not modo_pruebas and res.get('status') != "No se pudo encontrar":
+                            registrar_metrica(int_id, "Archivo/Texto")
+                            
                         render_terminal()
         
                     bot.cerrar()
@@ -386,10 +508,29 @@ if check_password():
             worksheet = writer.sheets['Reporte']
             from openpyxl.styles import PatternFill, Font, Alignment
             
-            # Ajustar ancho de columnas
+            # Ajustar ancho de columnas y alinear
+            col_letras = [col[0].column_letter for col in worksheet.columns]
+            headers_list = [cell.value for cell in worksheet[1]]
+            
             for column_cells in worksheet.columns:
+                col_letra = column_cells[0].column_letter
+                header_val = column_cells[0].value
+                
+                # Calcular longitud para auto-fit básico
                 length = max(len(str(cell.value)) if cell.value else 0 for cell in column_cells)
-                worksheet.column_dimensions[column_cells[0].column_letter].width = min(length + 2, 50)
+                ancho_final = min(length + 2, 50)
+                
+                if header_val == "ESTADO":
+                    ancho_final = max(ancho_final, 22) # Más ancho
+                elif header_val == "OBSERVACIONES":
+                    ancho_final = ancho_final * 0.7 # Reducir 30%
+                    if ancho_final < 15: ancho_final = 15
+                
+                worksheet.column_dimensions[col_letra].width = ancho_final
+                
+                # Aplicar centrado y wrap a todas las celdas
+                for cell in column_cells:
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 
             # Colores
             green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -418,7 +559,7 @@ if check_password():
             for cell in worksheet[header_row]:
                 cell.fill = header_fill
                 cell.font = header_font
-                cell.alignment = Alignment(horizontal="center")
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             
             headers = [cell.value for cell in worksheet[header_row]]
             estado_idx = headers.index("ESTADO") + 1 if "ESTADO" in headers else -1
