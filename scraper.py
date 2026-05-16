@@ -360,7 +360,7 @@ class WLHopperBot:
             }
 
         except Exception as e:
-            return {"status": "Error", "det": str(e)[:30], "obs": "-", "log": [f"❌ Error: {str(e)[:50]}"]}
+            return {"status": "Error", "insp": "-", "venc": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"]}
         
     def cerrar(self):
         if self.browser: self.browser.close()
