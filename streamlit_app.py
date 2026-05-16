@@ -286,14 +286,20 @@ if check_password():
         
         # --- COLUMNA 1: WORKLIFT ---
         with c_cred1:
-            # Creamos una fila horizontal: una columna chica para el icono y otra para el selectbox
             col_ico_wl, col_sel_wl = st.columns([1, 3])
             
             with col_ico_wl:
-                # El contenedor nativo genera el recuadro "icono grande" cuadrado
                 with st.container(border=True):
                     try:
-                        st.image("img/WL-Logo.png", use_container_width=True)
+                        # Forzamos un contenedor cuadrado perfecto con CSS inyectado
+                        st.markdown(
+                            """
+                            <div style="display: flex; justify-content: center; align-items: center; width: 64px; height: 64px; margin: 0 auto;">
+                                <img src="img/WL-Logo.png" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                            </div>
+                            """, 
+                            unsafe_allow_html=True
+                        )
                     except:
                         st.markdown("<h6 style='text-align: center; margin: 0;'>WL</h6>", unsafe_allow_html=True)
             
@@ -305,7 +311,6 @@ if check_password():
                     sel_empty_wl = st.selectbox("Perfil WL", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_wl_empty")
                     sel_wl = "➕ Nueva Credencial..." if sel_empty_wl == "➕ Nueva Credencial..." else ""
             
-            # Los inputs de abajo siguen su curso normal en la columna principal
             is_new_wl = (sel_wl == "➕ Nueva Credencial...") or (not wl_opciones and sel_wl == "")
             wl_u = st.text_input("Usuario WL", value="" if is_new_wl else sel_wl, key="inp_wl_u", disabled=not is_new_wl)
             wl_p = st.text_input("Contraseña WL", value="" if is_new_wl else wl_creds_dict.get(sel_wl, ""), type="password", key="inp_wl_p")
@@ -326,13 +331,20 @@ if check_password():
 
         # --- COLUMNA 2: BUREAU VERITAS ---
         with c_cred2:
-            # Fila horizontal idéntica para Bureau Veritas
             col_ico_bv, col_sel_bv = st.columns([1, 3])
             
             with col_ico_bv:
                 with st.container(border=True):
                     try:
-                        st.image("img/BV-Logo.png", use_container_width=True)
+                        # Mismo tamaño de caja exacto (64x64px) para garantizar simetría absoluta
+                        st.markdown(
+                            """
+                            <div style="display: flex; justify-content: center; align-items: center; width: 64px; height: 64px; margin: 0 auto;">
+                                <img src="img/BV-Logo.png" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                            </div>
+                            """, 
+                            unsafe_allow_html=True
+                        )
                     except:
                         st.markdown("<h6 style='text-align: center; margin: 0;'>BV</h6>", unsafe_allow_html=True)
             
@@ -344,7 +356,6 @@ if check_password():
                     sel_empty_bv = st.selectbox("Perfil BV", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_bv_empty")
                     sel_bv = "➕ Nueva Credencial..." if sel_empty_bv == "➕ Nueva Credencial..." else ""
             
-            # Los inputs de abajo siguen su curso normal en la columna principal
             is_new_bv = (sel_bv == "➕ Nueva Credencial...") or (not bv_opciones and sel_bv == "")
             bv_u = st.text_input("Usuario BV", value="" if is_new_bv else sel_bv, key="inp_bv_u", disabled=not is_new_bv)
             bv_p = st.text_input("Contraseña BV", value="" if is_new_bv else bv_creds_dict.get(sel_bv, ""), type="password", key="inp_bv_p")
