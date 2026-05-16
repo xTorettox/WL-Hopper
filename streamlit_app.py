@@ -811,7 +811,9 @@ if check_password():
             
     with dcol2:
         if st.session_state.proceso_completo:
-            st.download_button("📊 Descargar Excel", data=excel_data, file_name="Reporte_WLHopper.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            safe_name = nombre_excel.strip() if nombre_excel.strip() else "Reporte_WLHopper"
+            if not safe_name.endswith(".xlsx"): safe_name += ".xlsx"
+            st.download_button("📊 Descargar Excel", data=excel_data, file_name=safe_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         else:
             st.button("📊 Descargar Excel", disabled=True, use_container_width=True)
     
@@ -822,10 +824,14 @@ if check_password():
                 for r, d, files in os.walk("descargas_temp"):
                     for f in files: zf.write(os.path.join(r, f), f)
         
+        safe_zip = nombre_excel.strip() if nombre_excel.strip() else "certificados"
+        if safe_zip.endswith(".xlsx"): safe_zip = safe_zip[:-5]
+        if not safe_zip.endswith(".zip"): safe_zip += ".zip"
+        
         st.download_button(
             "📂 Descargar Archivo ZIP", 
             data=z_buf.getvalue(), 
-            file_name="certificados.zip", 
+            file_name=safe_zip, 
             disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
             use_container_width=True
         )
