@@ -277,7 +277,7 @@ if check_password():
     
 # --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
     with st.expander("🔐 Credenciales"):
-        st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifrada.")
+        st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifra.")
         
         wl_creds_dict = st.session_state.get("wl_creds_dict", {})
         bv_creds_dict = st.session_state.get("bv_creds_dict", {})
@@ -286,22 +286,26 @@ if check_password():
         
         # --- COLUMNA 1: WORKLIFT ---
         with c_cred1:
-            with st.container(border=True):
-                try:
-                    # Columnas internas para centrar el st.image nativo
-                    sub_izq, sub_centro, sub_der = st.columns([1, 3, 1])
-                    with sub_centro:
-                        st.image("img/WL-Logo.png", use_container_width=True)
-                except:
-                    st.markdown("<h5 style='text-align: center; margin: 10px 0;'>🏗️ Worklift</h5>", unsafe_allow_html=True)
+            # Creamos una fila horizontal: una columna chica para el icono y otra para el selectbox
+            col_ico_wl, col_sel_wl = st.columns([1, 3])
             
-            wl_opciones = list(wl_creds_dict.keys())
-            if wl_opciones:
-                sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real")
-            else:
-                sel_empty_wl = st.selectbox("Perfil WL", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_wl_empty")
-                sel_wl = "➕ Nueva Credencial..." if sel_empty_wl == "➕ Nueva Credencial..." else ""
-                
+            with col_ico_wl:
+                # El contenedor nativo genera el recuadro "icono grande" cuadrado
+                with st.container(border=True):
+                    try:
+                        st.image("img/WL-Logo.png", use_container_width=True)
+                    except:
+                        st.markdown("<h6 style='text-align: center; margin: 0;'>WL</h6>", unsafe_allow_html=True)
+            
+            with col_sel_wl:
+                wl_opciones = list(wl_creds_dict.keys())
+                if wl_opciones:
+                    sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real")
+                else:
+                    sel_empty_wl = st.selectbox("Perfil WL", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_wl_empty")
+                    sel_wl = "➕ Nueva Credencial..." if sel_empty_wl == "➕ Nueva Credencial..." else ""
+            
+            # Los inputs de abajo siguen su curso normal en la columna principal
             is_new_wl = (sel_wl == "➕ Nueva Credencial...") or (not wl_opciones and sel_wl == "")
             wl_u = st.text_input("Usuario WL", value="" if is_new_wl else sel_wl, key="inp_wl_u", disabled=not is_new_wl)
             wl_p = st.text_input("Contraseña WL", value="" if is_new_wl else wl_creds_dict.get(sel_wl, ""), type="password", key="inp_wl_p")
@@ -322,22 +326,25 @@ if check_password():
 
         # --- COLUMNA 2: BUREAU VERITAS ---
         with c_cred2:
-            with st.container(border=True):
-                try:
-                    # Proporciones levemente distintas para que el sello redondo no quede chico
-                    sub_izq, sub_centro, sub_der = st.columns([1, 2, 1])
-                    with sub_centro:
-                        st.image("img/BV-Logo.png", use_container_width=True)
-                except:
-                    st.markdown("<h5 style='text-align: center; margin: 10px 0;'>🌐 Bureau Veritas</h5>", unsafe_allow_html=True)
+            # Fila horizontal idéntica para Bureau Veritas
+            col_ico_bv, col_sel_bv = st.columns([1, 3])
             
-            bv_opciones = list(bv_creds_dict.keys())
-            if bv_opciones:
-                sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real")
-            else:
-                sel_empty_bv = st.selectbox("Perfil BV", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_bv_empty")
-                sel_bv = "➕ Nueva Credencial..." if sel_empty_bv == "➕ Nueva Credencial..." else ""
-                
+            with col_ico_bv:
+                with st.container(border=True):
+                    try:
+                        st.image("img/BV-Logo.png", use_container_width=True)
+                    except:
+                        st.markdown("<h6 style='text-align: center; margin: 0;'>BV</h6>", unsafe_allow_html=True)
+            
+            with col_sel_bv:
+                bv_opciones = list(bv_creds_dict.keys())
+                if bv_opciones:
+                    sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real")
+                else:
+                    sel_empty_bv = st.selectbox("Perfil BV", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_bv_empty")
+                    sel_bv = "➕ Nueva Credencial..." if sel_empty_bv == "➕ Nueva Credencial..." else ""
+            
+            # Los inputs de abajo siguen su curso normal en la columna principal
             is_new_bv = (sel_bv == "➕ Nueva Credencial...") or (not bv_opciones and sel_bv == "")
             bv_u = st.text_input("Usuario BV", value="" if is_new_bv else sel_bv, key="inp_bv_u", disabled=not is_new_bv)
             bv_p = st.text_input("Contraseña BV", value="" if is_new_bv else bv_creds_dict.get(sel_bv, ""), type="password", key="inp_bv_p")
@@ -356,7 +363,8 @@ if check_password():
                         st.success("Guardado en Bureau Veritas")
                     except Exception as e: st.error(f"Error: {e}")
 
-    # Fin box credenciales                    
+    # Fin box credenciales
+        
         # Synchronize selection with session state for bot execution
         st.session_state["wl_user"] = wl_u if is_new_wl else sel_wl
         st.session_state["wl_pw"] = wl_p if is_new_wl else wl_creds_dict.get(sel_wl, "")
