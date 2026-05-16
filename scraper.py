@@ -116,7 +116,6 @@ class WLHopperBot:
             
             candidatos.sort(key=lambda x: parse_date(x["insp"]), reverse=True)
             fila_reciente = candidatos[0]
-            log_pasos = [f"✅ Encontrado: {interno}", f"📅 Última Insp: {fila_reciente['insp']}"]
             
             # --- AUDITORÍA DE PDFS ---
             mejor_cert = None
@@ -154,6 +153,7 @@ class WLHopperBot:
             # Permitimos descarga solo si el más reciente es el que tiene el PDF
             permitir_descarga_cert = permitir_f and (mejor_cert == fila_reciente)
 
+            hubo_descarga_forzada = False
             # --- PROCESO DE DESCARGA ---
             descargo_cert, descargo_inf = False, False
             existe_inf = False
@@ -177,6 +177,7 @@ class WLHopperBot:
 
                 # Siempre descargamos el informe si NO hay certificado en la fila reciente, para analizarlo
                 forzar_descarga_informe = existe_inf and not tiene_cert_reciente
+                if forzar_descarga_informe: hubo_descarga_forzada = True
 
                 if (es_inf and (bajar_informe or forzar_descarga_informe)) or (es_cert and bajar_certificado and permitir_descarga_cert):
                     full_url = url if url.startswith("http") else f"https://certifica.worklift.com.ar{url if url.startswith('/') else '/' + url}"
@@ -193,9 +194,6 @@ class WLHopperBot:
                             ruta_informe_descargado = ruta_archivo
 
             self.page.keyboard.press("Escape")
-
-            log_pasos.append(f"📄 Informe: {'Descargado' if descargo_inf else ('No hallado' if not existe_inf else 'Omitido')}")
-            log_pasos.append(f"📜 Certificado: {'Descargado' if descargo_cert else 'Omitido o Vencido'}")
 
             # --- ANÁLISIS PDF (AUDITORÍA DE SEGURIDAD) ---
             observaciones = "-"
@@ -218,9 +216,7 @@ class WLHopperBot:
             estado_ocr = None
             obs_ocr = ""
             if es_rechazado and ruta_informe_descargado:
-                log_pasos.append("🤖 Certificado faltante. Analizando informe localmente...")
                 estado_ocr, obs_ocr = analizar_informe_local(ruta_informe_descargado)
-                log_pasos.append(f"🤖 Resultado OCR: {estado_ocr}")
                 
             # --- MODIFICACIÓN LÓGICA SEMESTRAL Y CORRECCIÓN DE FECHAS ---
             # Si la inspección falló, Worklift carga una fecha falsa +1 año.
@@ -309,6 +305,44 @@ class WLHopperBot:
                         obs_final = f"Último certificado vencido. No se pudo leer el informe automáticamente."
                         accion_final = "Verificar informe"
                         color_final = "ROJO"
+                        
+            # --- CONSTRUCCIÓN DEL REGISTRO DE ACTIVIDAD (LOG) ---
+            log_pasos = []
+            log_pasos.append("✅ Interno encontrado")
+            log_pasos.append(f"📄 Último Informe de Inspección: {fila_reciente['insp']}")
+            
+            estado_cert_str = ""
+            if tiene_cert_reciente:
+                estado_cert_str = "Vigente (descargado)" if descargo_cert else "Vigente (no descargado)" if permitir_descarga_cert else "Vencido"
+            else:
+                if mejor_cert:
+                    estado_cert_str = f"Vencido (anterior, no descargado)"
+                else:
+                    estado_cert_str = "No hallado"
+                    
+            if descargo_cert and not tiene_cert_reciente:
+                # Caso atípico, descargado desde uno anterior
+                estado_cert_str = "Vigente (anterior, descargado)"
+                
+            log_pasos.append(f"📜 Último Certificado: {estado_cert_str}")
+            
+            if fecha_venc_base != datetime.min:
+                log_pasos.append(f"📅 Fecha vencimiento certificado: {venc_mostrar} ({txt_dias})")
+                
+            if hubo_descarga_forzada:
+                log_pasos.append("⚠️ Certificado faltante o vencido. Se forzó la descarga del informe de inspección.")
+                
+            if es_rechazado and ruta_informe_descargado:
+                log_pasos.append("🤖 Certificado nuevo no encontrado. Analizando Informe de Inspección mediante OCR...")
+                if estado_ocr == "NO CUMPLE":
+                    log_pasos.append(f"🤖 Reporte: interno {interno} NO PASÓ la inspección")
+                elif estado_ocr == "CUMPLE":
+                    log_pasos.append(f"🤖 Reporte: interno {interno} PASÓ la inspección")
+                else:
+                    log_pasos.append(f"🤖 Reporte: no se pudo leer el resultado del informe")
+                    
+            if accion_final != "-":
+                log_pasos.append(f"💡 Sugerencia: {accion_final}")
                         
             return {
                 "status": estado_final,
