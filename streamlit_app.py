@@ -154,6 +154,9 @@ if check_password():
     if "df_excel" not in st.session_state: st.session_state.df_excel = None
     if "hay_archivos" not in st.session_state: st.session_state.hay_archivos = False
     if "res_lista" not in st.session_state: st.session_state.res_lista = []
+    if "texto_area" not in st.session_state: st.session_state.texto_area = ""
+    if "ultimo_archivo_procesado" not in st.session_state: st.session_state.ultimo_archivo_procesado = None
+
     
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
     c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
@@ -204,8 +207,56 @@ if check_password():
         if archivo_subido and archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
             st.info("⚠️ **Función Experimental:** La extracción de texto desde imagen (OCR) puede requerir revisión manual.")
             
-        texto_internos = st.text_area("O pegá el texto acá:", height=115, placeholder="E040230, 3797...")
+        # LÓGICA DE EXTRACCIÓN AUTOMÁTICA
+        if archivo_subido is not None:
+            archivo_id = archivo_subido.name + str(archivo_subido.size)
+            if st.session_state.ultimo_archivo_procesado != archivo_id:
+                with st.spinner("Procesando archivo..."):
+                    texto_extraido = ""
+                    if archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        try:
+                            image = Image.open(archivo_subido).convert('L')
+                            w, h = image.size
+                            image = image.resize((w*2, h*2), Image.Resampling.LANCZOS)
+                            enhancer = ImageEnhance.Contrast(image)
+                            image = enhancer.enhance(2.0)
+                            
+                            texto_imagen = pytesseract.image_to_string(image, config='--psm 11')
+                            palabras = texto_imagen.upper().split()
+                            texto_corregido = []
+                            for p in palabras:
+                                for char in ['£', '€', 'È', 'É']: p = p.replace(char, 'E')
+                                p = re.sub(r'[^A-Z0-9]', '', p)
+                                if p and p.startswith('3'): p = 'E' + p[1:]
+                                elif p and p[0] in ['4', '^', '@']: p = 'A' + p[1:]
+                                if p.startswith('E') or p.startswith('A'):
+                                    p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5')
+                                    texto_corregido.append(p[0] + p_resto)
+                                else:
+                                    texto_corregido.append(p)
+                            texto_extraido = " ".join(texto_corregido)
+                        except Exception as e:
+                            st.error(f"Error OCR: {e}")
+                    else:
+                        texto_extraido = extraer_texto_de_archivo(archivo_subido)
+                    
+                    lista_nuevos = extraer_internos(texto_extraido)
+                    if lista_nuevos:
+                        nuevo_texto = " ".join(lista_nuevos)
+                        if st.session_state.texto_area:
+                            st.session_state.texto_area += " " + nuevo_texto
+                        else:
+                            st.session_state.texto_area = nuevo_texto
+                        st.success(f"✅ Se agregaron {len(lista_nuevos)} internos extraídos del archivo.")
+                    else:
+                        st.warning("No se detectaron internos válidos en el archivo.")
+                
+                st.session_state.ultimo_archivo_procesado = archivo_id
+                st.rerun()
+            
+        texto_internos = st.text_area("Revisá o pegá los internos acá:", height=115, placeholder="E040230, 3797...", key="texto_area")
         btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
+
     
     with col_right:
         terminal_placeholder = st.empty()
@@ -232,64 +283,24 @@ if check_password():
             asegurar_carpeta(ruta_temp)
     
             st.session_state.proceso_completo = False
-            st.session_state.log_history = ["Iniciando conexión con Worklift..."]
+            
+            # Formato de log inicial enriquecido
+            si_no = lambda b: "Sí" if b else "No"
+            st.session_state.log_history = [
+                "--- PARÁMETROS ---",
+                f"Descargar certificados: {si_no(bajar_cert)}",
+                f"Descargar informes de inspección: {si_no(bajar_inf)}",
+                f"Modo vencimiento semestral: {si_no(es_semestral)}",
+                "------------------",
+                "Iniciando conexión con Worklift..."
+            ]
             render_terminal()
             
-            # --- Procesamiento Multimodal ---
-            texto_base = texto_internos
-            if archivo_subido is not None:
-                if archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    st.session_state.log_history.append("🤖 Analizando imagen con OCR...")
-                    render_terminal()
-                    try:
-                        # Preprocesamiento de imagen para mejorar la precisión del OCR
-                        image = Image.open(archivo_subido).convert('L') # Escala de grises
-                        w, h = image.size
-                        image = image.resize((w*2, h*2), Image.Resampling.LANCZOS) # Aumentar tamaño
-                        enhancer = ImageEnhance.Contrast(image)
-                        image = enhancer.enhance(2.0) # Aumentar contraste
-                        
-                        texto_imagen = pytesseract.image_to_string(image, config='--psm 11')
-                        
-                        # Limpiar errores típicos de OCR SOLO para imágenes
-                        palabras = texto_imagen.upper().split()
-                        texto_corregido = []
-                        for p in palabras:
-                            # 1. Reemplazos globales para caracteres no numéricos
-                            for char in ['£', '€', 'È', 'É']:
-                                p = p.replace(char, 'E')
-                                
-                            import re
-                            p = re.sub(r'[^A-Z0-9]', '', p) # Eliminar pipes, comas, corchetes pegados
-                                
-                            # 2. Corregir prefijo OCR específico si empieza mal
-                            if p and p.startswith('3'):
-                                p = 'E' + p[1:]
-                            elif p and p[0] in ['4', '^', '@']:
-                                p = 'A' + p[1:]
-                                
-                            # 3. Corregir letras confundidas con números dentro del interno
-                            if p.startswith('E') or p.startswith('A'):
-                                p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5')
-                                texto_corregido.append(p[0] + p_resto)
-                            else:
-                                texto_corregido.append(p)
-                                
-                        texto_imagen_limpio = " ".join(texto_corregido)
-                        texto_base += " " + texto_imagen_limpio
-                        st.session_state.log_history.append("🤖 Texto extraído de la imagen exitosamente.")
-                        st.session_state.log_history.append(f"📄 Lectura texto mediante OCR: {texto_imagen_limpio}")
-                    except Exception as e:
-                        st.session_state.log_history.append(f"❌ Error de OCR: {e}")
-                else:
-                    st.session_state.log_history.append("📄 Extrayendo texto de archivo...")
-                    texto_base += " " + extraer_texto_de_archivo(archivo_subido)
-            
-            lista = extraer_internos(texto_base)
-            st.session_state.log_history.append(f"📄 Lista obtenida: {lista}")
+            # Solo se extrae del cuadro de texto final (ya combinado)
+            lista = extraer_internos(texto_internos)
             
             if not lista:
-                st.session_state.log_history.append("❌ No se encontraron internos para procesar.")
+                st.session_state.log_history.append("❌ No se encontraron internos para procesar en el cuadro de texto.")
                 render_terminal()
             else:
                 st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
@@ -320,9 +331,10 @@ if check_password():
                     st.session_state.paste_key = st.session_state.get('paste_key', 0) + 1 # Resetear portapapeles
         
                     # Generación de HTML
-                    html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; padding: 10px 20px; }}</style>
+                    html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; vertical-align: middle; padding: 10px 20px; }}</style>
                     <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">
-                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
+                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
+
                     
                     excel_data = []
                     for r in res_lista:
@@ -344,7 +356,7 @@ if check_password():
                         html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
                         
                         row_dict = {
-                            "INTERNO": r["id"], "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO": r["venc"]
+                            "INTERNO": r["id"], "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"]
                         }
                             
                         row_dict.update({
