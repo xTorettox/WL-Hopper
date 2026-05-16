@@ -275,7 +275,7 @@ if check_password():
     st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px; margin-bottom: 25px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
+# --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
     with st.expander("🔐 Credenciales"):
         st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifrada.")
         
@@ -284,10 +284,23 @@ if check_password():
         
         c_cred1, c_cred2 = st.columns(2)
         
+        # --- COLUMNA 1: WORKLIFT ---
         with c_cred1:
-            try: st.image("img/WL-Logo.png", width=120)
-            except: st.markdown("##### 🏗️ Worklift")
+            # Contenedor nativo con borde para el efecto de tarjeta del logo
+            with st.container(border=True):
+                try: 
+                    st.markdown(
+                        """
+                        <div style="display: flex; justify-content: center; align-items: center; height: 80px;">
+                            <img src="img/WL-Logo.png" style="height: 55px; object-fit: contain;">
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                except: 
+                    st.markdown("<h5 style='text-align: center; margin: 25px 0;'>🏗️ Worklift</h5>", unsafe_allow_html=True)
             
+            # El resto de los componentes caen de forma natural abajo de la tarjeta
             wl_opciones = list(wl_creds_dict.keys())
             if wl_opciones:
                 sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real")
@@ -313,10 +326,23 @@ if check_password():
                         st.success("Guardado en Worklift")
                     except Exception as e: st.error(f"Error: {e}")
 
+        # --- COLUMNA 2: BUREAU VERITAS ---
         with c_cred2:
-            try: st.image("img/BV-Logo.png", width=120)
-            except: st.markdown("##### 🌐 Bureau Veritas")
+            # Contenedor nativo idéntico para simetría visual con el de arriba
+            with st.container(border=True):
+                try: 
+                    st.markdown(
+                        """
+                        <div style="display: flex; justify-content: center; align-items: center; height: 80px;">
+                            <img src="img/BV-Logo.png" style="height: 60px; object-fit: contain;">
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                except: 
+                    st.markdown("<h5 style='text-align: center; margin: 25px 0;'>🌐 Bureau Veritas</h5>", unsafe_allow_html=True)
             
+            # El resto de los componentes caen de forma natural abajo de la tarjeta
             bv_opciones = list(bv_creds_dict.keys())
             if bv_opciones:
                 sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real")
@@ -341,7 +367,8 @@ if check_password():
                         st.session_state["bv_creds_dict"] = bv_creds_dict
                         st.success("Guardado en Bureau Veritas")
                     except Exception as e: st.error(f"Error: {e}")
-                    
+
+    # Fin box credenciales                    
         # Synchronize selection with session state for bot execution
         st.session_state["wl_user"] = wl_u if is_new_wl else sel_wl
         st.session_state["wl_pw"] = wl_p if is_new_wl else wl_creds_dict.get(sel_wl, "")
