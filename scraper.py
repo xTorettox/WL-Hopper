@@ -72,7 +72,7 @@ class WLHopperBot:
             print(f"Error en Login: {e}")
             return False
 
-    def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe, es_semestral=False):
+    def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe, es_semestral=False, prefijo_cert="Certificado"):
         try:
             # Limpieza y búsqueda del interno
             buscador = self.page.get_by_role("textbox", name="Buscar")
@@ -183,8 +183,11 @@ class WLHopperBot:
                     full_url = url if url.startswith("http") else f"https://certifica.worklift.com.ar{url if url.startswith('/') else '/' + url}"
                     r = requests.get(full_url, cookies=cookies, headers=self.headers, timeout=25)
                     if r.status_code == 200:
-                        tipo = "Certificado" if es_cert else "Informe"
-                        nombre = f"{interno}_{tipo}_Vence_{vencimiento_real.replace('/','-')}.pdf"
+                        nombre_base = f"{interno}_{tipo}_Vence_{vencimiento_real.replace('/','-')}.pdf"
+                        if es_cert:
+                            nombre = f"{prefijo_cert}_{nombre_base}"
+                        else:
+                            nombre = nombre_base
                         ruta_archivo = os.path.join(ruta_base, nombre)
                         with open(ruta_archivo, "wb") as f:
                             f.write(r.content)
@@ -359,6 +362,90 @@ class WLHopperBot:
         except Exception as e:
             return {"status": "Error", "det": str(e)[:30], "obs": "-", "log": [f"❌ Error: {str(e)[:50]}"]}
         
+    def cerrar(self):
+        if self.browser: self.browser.close()
+        if self.pw: self.pw.stop()
+
+class BureauVeritasBot:
+    def __init__(self, headless=True):
+        self.headless = headless
+        self.pw = None
+        self.browser = None
+        self.context = None
+        self.page = None
+
+    def iniciar(self, usuario, clave):
+        try:
+            self.pw = sync_playwright().start()
+            self.browser = self.pw.chromium.launch(
+                headless=self.headless,
+                args=["--disable-extensions", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
+            self.context = self.browser.new_context(
+                accept_downloads=True,
+                extra_http_headers={"Content-Disposition": "attachment"}
+            )
+            self.page = self.context.new_page()
+            
+            self.page.goto("https://iip.bureauveritas.com.ar/Login.aspx", wait_until="load", timeout=60000)
+            self.page.fill('input[name="txtUsuario"]', usuario)
+            self.page.fill('input[name="txtPassword"]', clave)
+            self.page.click('input[name="btnAcceso"]')
+
+            self.page.click('a.ctl00_menua_1[href="Busquedas.aspx"]')
+            self.page.click('a#ctl00_ContentPlaceHolder1_lkBuscaEQ')
+            return True
+        except Exception as e:
+            print(f"Error BV Login: {e}")
+            return False
+
+    def procesar_interno(self, interno, ruta_base, prefijo_cert="Certificado"):
+        res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False}
+        try:
+            self.page.check('input#ctl00_ContentPlaceHolder1_RBOpciones_1')
+            self.page.fill('input#ctl00_ContentPlaceHolder1_txtNroBuscado', interno)
+            self.page.click('input#ctl00_ContentPlaceHolder1_btnBusca')
+
+            self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=10000)
+            fila = self.page.locator(f"tr:has-text('{interno}')").first
+            
+            if fila.count() > 0:
+                boton_pdf = fila.locator('input[id*="ImgbtnCertificado"]').last
+                
+                if boton_pdf.count() > 0:
+                    with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=15000) as response_info:
+                        boton_pdf.click()
+                    
+                    self.page.wait_for_timeout(3000)
+                    
+                    pdf_bytes_b64 = self.page.evaluate("""
+                        () => {
+                            return fetch(window.location.href)
+                                .then(r => r.blob())
+                                .then(blob => new Promise((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                    reader.readAsDataURL(blob);
+                                }));
+                        }
+                    """)
+                    
+                    import base64
+                    import os
+                    file_path = os.path.join(ruta_base, f"{prefijo_cert}_BV_{interno}.pdf")
+                    with open(file_path, "wb") as f:
+                        f.write(base64.b64decode(pdf_bytes_b64))
+                        
+                    res["status"] = "Encontrado en BV"
+                    res["cert"] = "Descargado"
+                    res["descargado"] = True
+            
+            self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx")
+        except Exception as e:
+            print(f"Error procesando {interno} en BV: {e}")
+            
+        return res
+
     def cerrar(self):
         if self.browser: self.browser.close()
         if self.pw: self.pw.stop()
