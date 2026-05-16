@@ -286,21 +286,15 @@ if check_password():
         
         # --- COLUMNA 1: WORKLIFT ---
         with c_cred1:
-            # Contenedor nativo con borde para el efecto de tarjeta del logo
             with st.container(border=True):
-                try: 
-                    st.markdown(
-                        """
-                        <div style="display: flex; justify-content: center; align-items: center; height: 80px;">
-                            <img src="img/WL-Logo.png" style="height: 55px; object-fit: contain;">
-                        </div>
-                        """, 
-                        unsafe_allow_html=True
-                    )
-                except: 
-                    st.markdown("<h5 style='text-align: center; margin: 25px 0;'>🏗️ Worklift</h5>", unsafe_allow_html=True)
+                try:
+                    # Columnas internas para centrar el st.image nativo
+                    sub_izq, sub_centro, sub_der = st.columns([1, 3, 1])
+                    with sub_centro:
+                        st.image("img/WL-Logo.png", use_container_width=True)
+                except:
+                    st.markdown("<h5 style='text-align: center; margin: 10px 0;'>🏗️ Worklift</h5>", unsafe_allow_html=True)
             
-            # El resto de los componentes caen de forma natural abajo de la tarjeta
             wl_opciones = list(wl_creds_dict.keys())
             if wl_opciones:
                 sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real")
@@ -328,21 +322,15 @@ if check_password():
 
         # --- COLUMNA 2: BUREAU VERITAS ---
         with c_cred2:
-            # Contenedor nativo idéntico para simetría visual con el de arriba
             with st.container(border=True):
-                try: 
-                    st.markdown(
-                        """
-                        <div style="display: flex; justify-content: center; align-items: center; height: 80px;">
-                            <img src="img/BV-Logo.png" style="height: 60px; object-fit: contain;">
-                        </div>
-                        """, 
-                        unsafe_allow_html=True
-                    )
-                except: 
-                    st.markdown("<h5 style='text-align: center; margin: 25px 0;'>🌐 Bureau Veritas</h5>", unsafe_allow_html=True)
+                try:
+                    # Proporciones levemente distintas para que el sello redondo no quede chico
+                    sub_izq, sub_centro, sub_der = st.columns([1, 2, 1])
+                    with sub_centro:
+                        st.image("img/BV-Logo.png", use_container_width=True)
+                except:
+                    st.markdown("<h5 style='text-align: center; margin: 10px 0;'>🌐 Bureau Veritas</h5>", unsafe_allow_html=True)
             
-            # El resto de los componentes caen de forma natural abajo de la tarjeta
             bv_opciones = list(bv_creds_dict.keys())
             if bv_opciones:
                 sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real")
