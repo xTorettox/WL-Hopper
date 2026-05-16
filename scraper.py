@@ -377,10 +377,34 @@ class BureauVeritasBot:
     def iniciar(self, usuario, clave):
         try:
             self.pw = sync_playwright().start()
-            self.browser = self.pw.chromium.launch(
-                headless=self.headless,
-                args=["--disable-extensions", "--no-sandbox", "--disable-dev-shm-usage"]
-            )
+            
+            # --- LÓGICA DE DETECCIÓN DE NAVEGADOR PARA CLOUD ---
+            rutas_posibles = [
+                "/usr/bin/chromium",
+                "/usr/bin/chromium-browser",
+                "/usr/lib/chromium/chromium",
+                "/usr/bin/google-chrome"
+            ]
+            
+            self.browser = None
+            for ruta in rutas_posibles:
+                if os.path.exists(ruta):
+                    try:
+                        self.browser = self.pw.chromium.launch(
+                            executable_path=ruta,
+                            headless=self.headless,
+                            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"]
+                        )
+                        break
+                    except:
+                        continue
+            
+            if not self.browser:
+                self.browser = self.pw.chromium.launch(
+                    headless=self.headless,
+                    args=["--disable-extensions", "--no-sandbox", "--disable-dev-shm-usage"]
+                )
+                
             self.context = self.browser.new_context(
                 accept_downloads=True,
                 extra_http_headers={"Content-Disposition": "attachment"}
