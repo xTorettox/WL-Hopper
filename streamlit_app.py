@@ -289,17 +289,11 @@ if check_password():
             col_ico_wl, col_sel_wl = st.columns([1, 3])
             
             with col_ico_wl:
+                # El contenedor nativo hereda el tamaño fijo que le damos a st.image
                 with st.container(border=True):
                     try:
-                        # Forzamos un contenedor cuadrado perfecto con CSS inyectado
-                        st.markdown(
-                            """
-                            <div style="display: flex; justify-content: center; align-items: center; width: 64px; height: 64px; margin: 0 auto;">
-                                <img src="img/WL-Logo.png" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-                            </div>
-                            """, 
-                            unsafe_allow_html=True
-                        )
+                        # Clavamos el ancho en 64px nativos para hacer el "cuadradito"
+                        st.image("img/WL-Logo.png", width=64)
                     except:
                         st.markdown("<h6 style='text-align: center; margin: 0;'>WL</h6>", unsafe_allow_html=True)
             
@@ -334,17 +328,11 @@ if check_password():
             col_ico_bv, col_sel_bv = st.columns([1, 3])
             
             with col_ico_bv:
+                # Al usar exactamente el mismo contenedor y el mismo width, quedan gemelos
                 with st.container(border=True):
                     try:
-                        # Mismo tamaño de caja exacto (64x64px) para garantizar simetría absoluta
-                        st.markdown(
-                            """
-                            <div style="display: flex; justify-content: center; align-items: center; width: 64px; height: 64px; margin: 0 auto;">
-                                <img src="img/BV-Logo.png" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-                            </div>
-                            """, 
-                            unsafe_allow_html=True
-                        )
+                        # Mismo ancho exacto de 64px
+                        st.image("img/BV-Logo.png", width=64)
                     except:
                         st.markdown("<h6 style='text-align: center; margin: 0;'>BV</h6>", unsafe_allow_html=True)
             
