@@ -116,6 +116,15 @@ st.markdown(f"""
       content: "";
       animation: ellipsis 1.5s infinite;
     }}
+    
+    @keyframes blink {{
+        0% {{ opacity: 1; }}
+        50% {{ opacity: 0; }}
+        100% {{ opacity: 1; }}
+    }}
+    .blink-cursor {{
+        animation: blink 1s step-end infinite;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -133,11 +142,26 @@ def check_password():
             # Fetch credenciales desde Supabase
             if supabase:
                 try:
-                    res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", st.session_state["logged_user"]).eq("sitio", "WL").execute()
-                    if res.data and len(res.data) > 0:
-                        cred = res.data[0]
-                        st.session_state["wl_user"] = desencriptar(cred.get("user_enc", ""))
-                        st.session_state["wl_pw"] = desencriptar(cred.get("pass_enc", ""))
+                    res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", st.session_state["logged_user"]).execute()
+                    wl_creds = {}
+                    if res.data:
+                        for cred in res.data:
+                            s_name = cred.get("sitio", "")
+                            if s_name.startswith("WL"):
+                                user_dec = desencriptar(cred.get("user_enc", ""))
+                                pass_dec = desencriptar(cred.get("pass_enc", ""))
+                                if user_dec:
+                                    wl_creds[user_dec] = pass_dec
+                    
+                    st.session_state["wl_creds_dict"] = wl_creds
+                    if wl_creds:
+                        # Seleccionar el primero por defecto si existe
+                        first_u = list(wl_creds.keys())[0]
+                        st.session_state["wl_user"] = first_u
+                        st.session_state["wl_pw"] = wl_creds[first_u]
+                    else:
+                        st.session_state["wl_user"] = ""
+                        st.session_state["wl_pw"] = ""
                 except Exception as e:
                     print(f"Error fetching credentials: {e}")
         else:
@@ -242,53 +266,73 @@ if check_password():
     
     # --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
     with st.expander("🔐 Credenciales de Worklift"):
-        st.write("Guarda tus credenciales de Worklift de forma segura y cifrada.")
-        c_cred1, c_cred2 = st.columns(2)
-        default_user = st.session_state.get("wl_user", "")
-        default_pw = st.session_state.get("wl_pw", "")
-        new_user = c_cred1.text_input("Usuario Worklift", value=default_user, key="input_wl_user")
-        new_pw = c_cred2.text_input("Contraseña Worklift", value=default_pw, type="password", key="input_wl_pw")
+        st.write("Gestiona tus credenciales de Worklift guardadas de forma cifrada.")
         
-        if st.button("💾 Guardar Credenciales"):
-            if supabase:
+        wl_creds_dict = st.session_state.get("wl_creds_dict", {})
+        opciones_cred = list(wl_creds_dict.keys()) + ["➕ Nueva Credencial..."]
+        
+        # Seleccion de credencial
+        default_idx = 0
+        if st.session_state.get("wl_user") in opciones_cred:
+            default_idx = opciones_cred.index(st.session_state["wl_user"])
+            
+        selected_cred = st.selectbox("Seleccionar credencial guardada:", opciones_cred, index=default_idx)
+        
+        is_new = (selected_cred == "➕ Nueva Credencial...")
+        
+        c_cred1, c_cred2 = st.columns(2)
+        new_user = c_cred1.text_input("Usuario Worklift", value="" if is_new else selected_cred, key="input_wl_user")
+        new_pw = c_cred2.text_input("Contraseña Worklift", value="" if is_new else wl_creds_dict.get(selected_cred, ""), type="password", key="input_wl_pw")
+        
+        if st.button("💾 Guardar / Actualizar Credencial"):
+            if not new_user or not new_pw:
+                st.error("Debes ingresar un usuario y contraseña.")
+            elif supabase:
                 try:
                     enc_u = encriptar(new_user)
                     enc_p = encriptar(new_pw)
                     logged_usr = st.session_state.get("logged_user", "")
+                    # Bypass global unique constraint by including user in sitio name
+                    sitio_val = f"WL_{logged_usr}_{new_user}"
                     
-                    # Chequear si existe para hacer update o insert (upsert en supabase)
-                    res_check = supabase.table("credenciales_sitios").select("id").eq("usuario_app", logged_usr).eq("sitio", "WL").execute()
+                    res_check = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
                     
                     if res_check.data and len(res_check.data) > 0:
-                        # Update
                         supabase.table("credenciales_sitios").update({
                             "user_enc": enc_u,
                             "pass_enc": enc_p
-                        }).eq("usuario_app", logged_usr).eq("sitio", "WL").execute()
+                        }).eq("sitio", sitio_val).execute()
                     else:
-                        # Insert
                         supabase.table("credenciales_sitios").insert({
                             "usuario_app": logged_usr,
-                            "sitio": "WL",
+                            "sitio": sitio_val,
                             "user_enc": enc_u,
                             "pass_enc": enc_p
                         }).execute()
                     
+                    # Update local state
+                    wl_creds_dict[new_user] = new_pw
+                    st.session_state["wl_creds_dict"] = wl_creds_dict
                     st.session_state["wl_user"] = new_user
                     st.session_state["wl_pw"] = new_pw
-                    st.success("Credenciales cifradas y guardadas en la nube correctamente.")
+                    
+                    st.success("Credencial cifrada y guardada correctamente.")
                 except Exception as e:
                     st.error(f"Error al guardar credenciales: {e}")
             else:
                 st.error("No hay conexión con la base de datos.")
+                
+        # Update session state with selected credential so the bot uses it
+        if not is_new and selected_cred in wl_creds_dict:
+            st.session_state["wl_user"] = selected_cred
+            st.session_state["wl_pw"] = wl_creds_dict[selected_cred]
     
     col_left, col_right = st.columns([1, 1.2], gap="large")
     
     with col_left:
         
         with st.container(border=True):
-            user = st.text_input("Usuario (Email)", value=st.session_state.get("wl_user", ""), key="user_email")
-            pw = st.text_input("Contraseña", value=st.session_state.get("wl_pw", ""), type="password", key="user_pw")
+            plataforma = st.selectbox("🌐 Plataforma", ["Worklift", "Bureau Veritas (Próximamente)"], help="Selecciona de dónde intentar descargar los certificados.")
             c1, c2 = st.columns(2)
             bajar_cert = c1.checkbox("Descargar Certificados", value=True)
             bajar_inf = c2.checkbox("Descargar Informes", value=False)
@@ -296,6 +340,10 @@ if check_password():
             modo_pruebas = False
             if st.session_state.get("logged_user") == "fcendra":
                 modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True)
+                
+        with st.expander("⚙️ Configuración de Salida"):
+            nombre_excel = st.text_input("Nombre del Excel", value="Reporte_Hopper")
+            prefijo_cert = st.text_input("Prefijo de Certificados", value="Certificado")
     
         st.markdown("##### Listado de Internos")
         archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
@@ -379,7 +427,7 @@ if check_password():
         terminal_placeholder = st.empty()
         def render_terminal():
             html = f'<div class="terminal-box">'
-            html += f'<div style="font-family: \'Consolas\', monospace; font-weight: bold; font-size: 1.1rem; color: #50fa7b; margin-bottom: 10px; border-bottom: 1px dashed #555; padding-bottom: 5px;">&gt;_ REGISTRO DE ACTIVIDAD</div>'
+            html += f'<div style="font-family: \'Consolas\', monospace; font-weight: bold; font-size: 1.1rem; color: #00ff00; margin-bottom: 10px; border-bottom: 1px dashed #555; padding-bottom: 5px;">&gt;<span class="blink-cursor">_</span> REGISTRO DE ACTIVIDAD</div>'
             for entry in st.session_state.log_history:
                 # Colores basados en íconos
                 color = "#f8f9fa"
@@ -393,7 +441,10 @@ if check_password():
         render_terminal()
     
     if btn_run:
-        if not user or not pw: st.error("Faltan credenciales.")
+        wl_usr = st.session_state.get("wl_user", "")
+        wl_pass = st.session_state.get("wl_pw", "")
+        
+        if not wl_usr or not wl_pass: st.error("Faltan credenciales de Worklift. Selecciona o guarda una.")
         else:
             ruta_temp = "descargas_temp"
             if os.path.exists(ruta_temp): shutil.rmtree(ruta_temp)
@@ -424,17 +475,44 @@ if check_password():
                 render_terminal()
                 
                 bot = WLHopperBot(headless=True)
-                if bot.iniciar(user, pw):
-                    st.session_state.log_history[-1] = "🔐 Login exitoso."
+                if bot.iniciar(wl_usr, wl_pass):
+                    st.session_state.log_history[-1] = "🔐 Login exitoso en Worklift."
                     render_terminal()
                     
                     res_lista = []
                     for int_id in lista:
                         st.session_state.log_history.append(f"--- Procesando {int_id} ---")
                         render_terminal()
-                        res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral)
+                        res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
                         res['id'] = int_id
                         
+                        # --- CONTINGENCIA BUREAU VERITAS ---
+                        if res.get('cert') == 'NO' or res.get('status') in ['VENCIDO', 'RECHAZADO', 'No se pudo encontrar']:
+                            st.session_state.log_history.append("⚠️ Certificado inválido/ausente en WL. Iniciando contingencia en Bureau Veritas...")
+                            render_terminal()
+                            try:
+                                from scraper import BureauVeritasBot
+                                bv_bot = BureauVeritasBot(headless=True)
+                                bv_usr = "SULLAIRNQN"
+                                bv_pw = st.secrets.get("bv_password", "TU_PASSWORD_ACA") # Placeholder u obtenido de secrets
+                                if bv_bot.iniciar(bv_usr, bv_pw):
+                                    bv_res = bv_bot.procesar_interno(int_id, ruta_temp, prefijo_cert=prefijo_cert)
+                                    if bv_res.get('descargado'):
+                                        st.session_state.log_history.append(f"✅ ¡Certificado encontrado y descargado en Bureau Veritas!")
+                                        res['cert'] = "Descargado (BV)"
+                                        # Si WL decía vencido pero BV lo bajó, actualizamos el estado para no alarmar
+                                        res['status'] = "VIGENTE (BV)"
+                                        res['color'] = "VERDE"
+                                        res['obs_final'] = "Certificado obtenido de Bureau Veritas."
+                                        res['accion_final'] = "-"
+                                    else:
+                                        st.session_state.log_history.append(f"❌ Tampoco se encontró en Bureau Veritas.")
+                                    bv_bot.cerrar()
+                                else:
+                                    st.session_state.log_history.append("❌ Falló inicio de sesión en Bureau Veritas.")
+                            except Exception as e:
+                                st.session_state.log_history.append(f"❌ Error en contingencia BV: {e}")
+                                
                         res_lista.append(res)
                         for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
                         
@@ -525,6 +603,8 @@ if check_password():
                 elif header_val == "OBSERVACIONES":
                     ancho_final = ancho_final * 0.7 # Reducir 30%
                     if ancho_final < 15: ancho_final = 15
+                elif header_val == "INFORME":
+                    ancho_final = 9.5
                 
                 worksheet.column_dimensions[col_letra].width = ancho_final
                 
