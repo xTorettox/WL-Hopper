@@ -285,7 +285,16 @@ if check_password():
         c_cred1, c_cred2 = st.columns(2)
         
         with c_cred1:
-            try: st.image("img/WL-Logo.png", width=120)
+            try: 
+                # Usamos HTML para centrar, fijar altura y darle un aire sutil de icono
+                st.markdown(
+                    """
+                    <div style="display: flex; justify-content: center; align-items: center; height: 90px; margin-bottom: 10px;">
+                        <img src="app/static/img/WL-Logo.png" style="height: 60px; object-fit: contain;">
+                    </div>
+                    """, 
+                unsafe_allow_html=True
+            )
             except: st.markdown("##### 🏗️ Worklift")
             
             wl_opciones = list(wl_creds_dict.keys())
@@ -314,7 +323,15 @@ if check_password():
                     except Exception as e: st.error(f"Error: {e}")
 
         with c_cred2:
-            try: st.image("img/BV-Logo.png", width=120)
+            try: 
+                st.markdown(
+                    """
+                    <div style="display: flex; justify-content: center; align-items: center; height: 90px; margin-bottom: 10px;">
+                        <img src="app/static/img/BV-Logo.png" style="height: 65px; object-fit: contain;">
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+        )
             except: st.markdown("##### 🌐 Bureau Veritas")
             
             bv_opciones = list(bv_creds_dict.keys())
