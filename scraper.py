@@ -183,6 +183,7 @@ class WLHopperBot:
                     full_url = url if url.startswith("http") else f"https://certifica.worklift.com.ar{url if url.startswith('/') else '/' + url}"
                     r = requests.get(full_url, cookies=cookies, headers=self.headers, timeout=25)
                     if r.status_code == 200:
+                        tipo = "Certificado" if es_cert else "Informe"
                         nombre_base = f"{interno}_{tipo}_Vence_{vencimiento_real.replace('/','-')}.pdf"
                         if es_cert:
                             nombre = f"{prefijo_cert}_{nombre_base}"
@@ -224,7 +225,7 @@ class WLHopperBot:
             # --- MODIFICACIÓN LÓGICA SEMESTRAL Y CORRECCIÓN DE FECHAS ---
             # Si la inspección falló, Worklift carga una fecha falsa +1 año.
             # Lo corregimos usando la fecha del último certificado real.
-            if es_rechazado and estado_ocr == "NO CUMPLE":
+            if es_rechazado and estado_ocr != "CUMPLE":
                 fecha_venc_base = fecha_venc_cert
                 venc_mostrar = mejor_cert["venc"] if mejor_cert else "-"
             else:
