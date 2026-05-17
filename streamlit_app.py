@@ -43,16 +43,42 @@ def desencriptar(texto_cifrado):
     except:
         return ""
 
-def registrar_metrica(interno, fuente):
+def get_location_info(ip):
+    if not ip or ip == "Desconocido": return "Desconocido"
+    try:
+        ip = ip.split(",")[0].strip()
+        import requests
+        r = requests.get(f"http://ip-api.com/json/{ip}", timeout=2)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("status") == "success":
+                return f"{data.get('city', '')}, {data.get('regionName', '')}, {data.get('countryCode', '')}".strip(", ")
+    except:
+        pass
+    return "Desconocido"
+
+def registrar_metrica(interno, fuente, exito=True):
     if not supabase: return
     try:
-        minutos = 5
+        # Intenta obtener IP (En Streamlit Cloud suele venir en los headers)
+        try:
+            from streamlit.web.server.websocket_headers import _get_websocket_headers
+            headers = _get_websocket_headers()
+            ip = headers.get("X-Forwarded-For", "Desconocido") if headers else "Desconocido"
+        except:
+            ip = "Desconocido"
+            
+        ubicacion = get_location_info(ip)
+        
+        minutos = 1
         data = {
             "usuario": st.session_state.get("logged_user", "desconocido"),
             "equipo": interno,
             "fuente": fuente,
             "fecha": datetime.now().isoformat(),
-            "minutos_ahorrados": minutos
+            "minutos_ahorrados": minutos,
+            "exito": exito,
+            "ip": f"{ip} ({ubicacion})"
         }
         supabase.table("metricas").insert(data).execute()
     except Exception as e:
@@ -217,17 +243,78 @@ if check_password():
     if st.session_state.get("logged_user") == "fcendra" and supabase:
         with st.sidebar:
             st.markdown("### ⚙️ Panel de Admin")
-            try:
-                # supabase python no siempre retorna count de manera facil, traemos data
-                res_met = supabase.table("metricas").select("minutos_ahorrados").execute()
-                total_items = len(res_met.data) if res_met.data else 0
-                total_minutos = sum(item.get("minutos_ahorrados", 0) for item in res_met.data) if res_met.data else 0
+            if st.button("📊 Abrir Dashboard", use_container_width=True):
+                st.session_state.show_dashboard = True
+                st.rerun()
+
+    if st.session_state.get("show_dashboard", False):
+        st.title("📊 Dashboard de Métricas - WL Hopper")
+        if st.button("⬅️ Volver a la App", type="primary"):
+            st.session_state.show_dashboard = False
+            st.rerun()
+            
+        try:
+            res_met = supabase.table("metricas").select("*").execute()
+            if not res_met.data:
+                st.info("No hay métricas registradas aún.")
+            else:
+                import pandas as pd
+                df = pd.DataFrame(res_met.data)
+                df['fecha'] = pd.to_datetime(df['fecha'])
+                
+                # --- FILTRO TEMPORAL DINÁMICO ---
+                st.markdown("### Filtro Temporal")
+                # Por defecto muestra los últimos 30 días
+                min_date = df['fecha'].min().date()
+                max_date = df['fecha'].max().date()
+                rango = st.date_input("Seleccionar rango de fechas", value=(max_date - timedelta(days=30), max_date), min_value=min_date, max_value=max_date)
+                
+                if isinstance(rango, tuple) and len(rango) == 2:
+                    start_date, end_date = rango
+                    df = df[(df['fecha'].dt.date >= start_date) & (df['fecha'].dt.date <= end_date)]
+                
+                # KPIs
+                total_items = len(df)
+                total_minutos = df['minutos_ahorrados'].sum() if 'minutos_ahorrados' in df.columns else 0
                 horas_ahorradas = total_minutos / 60
                 
-                st.metric("🤖 Total Ejecuciones", total_items)
-                st.metric("⏳ Tiempo Ahorrado", f"{horas_ahorradas:.1f} hs")
-            except Exception as e:
-                st.error(f"Error cargando métricas: {e}")
+                exitosos = df['exito'].sum() if 'exito' in df.columns else total_items
+                tasa_exito = (exitosos / total_items * 100) if total_items > 0 else 0
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("🤖 Total Ejecuciones", total_items)
+                c2.metric("⏳ Tiempo Ahorrado", f"{horas_ahorradas:.1f} hs")
+                c3.metric("✅ Tasa de Efectividad", f"{tasa_exito:.1f}%")
+                
+                st.divider()
+                
+                c_graf1, c_graf2 = st.columns(2)
+                with c_graf1:
+                    st.markdown("##### 👥 Uso por Usuario")
+                    uso_usuario = df['usuario'].value_counts()
+                    st.bar_chart(uso_usuario)
+                    
+                with c_graf2:
+                    st.markdown("##### 📈 Actividad en el Tiempo")
+                    # Agrupar por fecha
+                    df['dia'] = df['fecha'].dt.date
+                    actividad_diaria = df['dia'].value_counts().sort_index()
+                    st.line_chart(actividad_diaria)
+                    
+                st.markdown("##### 📝 Registros Detallados")
+                # Ocultar algunas columnas internas o mostrarlas mejor formateadas
+                st.dataframe(df.drop(columns=['dia']).sort_values(by='fecha', ascending=False), use_container_width=True)
+                
+                # Exportar Excel
+                import io
+                excel_buffer = io.BytesIO()
+                df.drop(columns=['dia']).to_excel(excel_buffer, index=False)
+                st.download_button("📥 Descargar Reporte Completo (Excel)", data=excel_buffer.getvalue(), file_name="Reporte_Metricas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        except Exception as e:
+            st.error(f"Error cargando el Dashboard: {e}")
+            
+        st.stop()
 
     @st.dialog("Acerca de WL Hopper")
     def mostrar_about():
@@ -385,7 +472,8 @@ if check_password():
                 
         with st.expander("⚙️ Configuración de Salida"):
             nombre_excel = st.text_input("Nombre del Excel", value="Reporte_Hopper")
-            prefijo_cert = st.text_input("Prefijo de Certificados", value="Certificado")
+            nombre_zip = st.text_input("Nombre del Archivo ZIP", value="Certificados")
+            prefijo_cert = "" # Forzamos vacío para no pisar el nombre original de los PDFs
     
         st.markdown("##### Listado de Internos")
         archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
@@ -506,6 +594,9 @@ if check_password():
             ]
             render_terminal()
             
+            # --- AUTO SCROLL A LA TERMINAL ---
+            st.components.v1.html("""<script>window.parent.document.querySelector('.terminal-box').scrollIntoView({behavior: 'smooth'});</script>""", height=0)
+            
             # Solo se extrae del cuadro de texto final (ya combinado)
             lista = extraer_internos(texto_internos)
             
@@ -562,7 +653,9 @@ if check_password():
                         
                         # Inyección de métricas (si no es prueba y no falló por completo)
                         if not modo_pruebas and res.get('status') != "No se pudo encontrar":
-                            registrar_metrica(int_id, "Archivo/Texto")
+                            # Calculamos éxito si descargó algo o si está vigente y verde
+                            fue_exito = ("VERDE" in res.get('color', '') or "Descargado" in res.get('cert', ''))
+                            registrar_metrica(int_id, "Archivo/Texto", exito=fue_exito)
                             
                         render_terminal()
         
@@ -824,7 +917,7 @@ if check_password():
                 for r, d, files in os.walk("descargas_temp"):
                     for f in files: zf.write(os.path.join(r, f), f)
         
-        safe_zip = nombre_excel.strip() if nombre_excel.strip() else "certificados"
+        safe_zip = nombre_zip.strip() if nombre_zip.strip() else "certificados"
         if safe_zip.endswith(".xlsx"): safe_zip = safe_zip[:-5]
         if not safe_zip.endswith(".zip"): safe_zip += ".zip"
         
@@ -835,6 +928,17 @@ if check_password():
             disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
             use_container_width=True
         )
+        
+        # --- AUTO SCROLL A LOS BOTONES DE DESCARGA ---
+        if st.session_state.proceso_completo:
+            st.components.v1.html("""<script>
+            setTimeout(() => {
+                const buttons = window.parent.document.querySelectorAll('button[kind="primary"], button[kind="secondary"]');
+                if (buttons.length > 0) {
+                    buttons[buttons.length - 1].scrollIntoView({behavior: 'smooth'});
+                }
+            }, 500);
+            </script>""", height=0)
 
     # El bloque de compartir como imagen se movió a dcol1 y se intercala por CSS.
 
