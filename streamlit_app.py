@@ -17,7 +17,7 @@ from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimien
 
 from supabase import create_client, Client
 from cryptography.fernet import Fernet
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CONFIGURACIÓN BÚNKER DE SEGURIDAD Y BD ---
 try:
@@ -629,7 +629,8 @@ if check_password():
                                 bv_usr = st.session_state.get("bv_user")
                                 bv_pw = st.session_state.get("bv_pw")
                                 if bv_usr and bv_pw:
-                                    if bv_bot.iniciar(bv_usr, bv_pw):
+                                    exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw)
+                                    if exito_bv:
                                         bv_res = bv_bot.procesar_interno(int_id, ruta_temp, prefijo_cert=prefijo_cert)
                                         if bv_res.get('descargado'):
                                             st.session_state.log_history.append(f"✅ ¡Certificado encontrado y descargado en Bureau Veritas!")
@@ -642,7 +643,7 @@ if check_password():
                                             st.session_state.log_history.append(f"❌ Tampoco se encontró en Bureau Veritas.")
                                         bv_bot.cerrar()
                                     else:
-                                        st.session_state.log_history.append("❌ Falló inicio de sesión en Bureau Veritas.")
+                                        st.session_state.log_history.append(f"❌ Falló inicio de sesión en Bureau Veritas. (Detalle: {error_bv})")
                                 else:
                                     st.session_state.log_history.append("❌ No hay credenciales configuradas para Bureau Veritas.")
                             except Exception as e:
@@ -738,8 +739,9 @@ if check_password():
                 if header_val == "ESTADO":
                     ancho_final = max(ancho_final, 22) # Más ancho
                 elif header_val == "OBSERVACIONES":
-                    ancho_final = ancho_final * 0.7 # Reducir 30%
-                    if ancho_final < 15: ancho_final = 15
+                    ancho_final = 19.57
+                elif header_val == "ACCIONES":
+                    ancho_final = 27.43
                 elif header_val == "INFORME":
                     ancho_final = 9.5
                 
