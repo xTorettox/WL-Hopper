@@ -375,9 +375,14 @@ class BureauVeritasBot:
         self.context = None
         self.page = None
 
-    def iniciar(self, usuario, clave):
+    def iniciar(self, usuario, clave, pw_instance=None):
         try:
-            self.pw = sync_playwright().start()
+            self.pw_started_here = False
+            if pw_instance:
+                self.pw = pw_instance
+            else:
+                self.pw = sync_playwright().start()
+                self.pw_started_here = True
             
             # --- LÓGICA DE DETECCIÓN DE NAVEGADOR PARA CLOUD ---
             rutas_posibles = [
@@ -473,4 +478,5 @@ class BureauVeritasBot:
 
     def cerrar(self):
         if self.browser: self.browser.close()
-        if self.pw: self.pw.stop()
+        if getattr(self, "pw_started_here", False) and self.pw:
+            self.pw.stop()
