@@ -264,10 +264,11 @@ if check_password():
                 
                 # --- FILTRO TEMPORAL DINÁMICO ---
                 st.markdown("### Filtro Temporal")
-                # Por defecto muestra los últimos 30 días
+                # Por defecto muestra los últimos 30 días o desde el primer registro disponible
                 min_date = df['fecha'].min().date()
                 max_date = df['fecha'].max().date()
-                rango = st.date_input("Seleccionar rango de fechas", value=(max_date - timedelta(days=30), max_date), min_value=min_date, max_value=max_date)
+                default_start = max(min_date, max_date - timedelta(days=30))
+                rango = st.date_input("Seleccionar rango de fechas", value=(default_start, max_date), min_value=min_date, max_value=max_date)
                 
                 if isinstance(rango, tuple) and len(rango) == 2:
                     start_date, end_date = rango
