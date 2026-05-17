@@ -630,7 +630,7 @@ if check_password():
                                 bv_usr = st.session_state.get("bv_user")
                                 bv_pw = st.session_state.get("bv_pw")
                                 if bv_usr and bv_pw:
-                                    exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw)
+                                    exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
                                     if exito_bv:
                                         bv_res = bv_bot.procesar_interno(int_id, ruta_temp, prefijo_cert=prefijo_cert)
                                         if bv_res.get('descargado'):
