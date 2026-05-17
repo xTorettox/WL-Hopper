@@ -620,9 +620,11 @@ if check_password():
                         res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
                         res['id'] = int_id
                         
+                        res['proveedor'] = "Worklift"
+                        
                         # --- CONTINGENCIA BUREAU VERITAS ---
                         if res.get('cert') == 'NO' or res.get('status') in ['VENCIDO', 'RECHAZADO', 'No se pudo encontrar']:
-                            st.session_state.log_history.append("⚠️ Certificado inválido/ausente en WL. Iniciando contingencia en Bureau Veritas...")
+                            st.session_state.log_history.append("⚠️ Certificado inválido/ausente en WL. Iniciando búsqueda en Bureau Veritas...")
                             render_terminal()
                             try:
                                 from scraper import BureauVeritasBot
@@ -632,13 +634,21 @@ if check_password():
                                 if bv_usr and bv_pw:
                                     exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
                                     if exito_bv:
-                                        bv_res = bv_bot.procesar_interno(int_id, ruta_temp, prefijo_cert=prefijo_cert)
-                                        if bv_res.get('descargado'):
-                                            st.session_state.log_history.append(f"✅ ¡Certificado encontrado y descargado en Bureau Veritas!")
-                                            res['cert'] = "Descargado (BV)"
+                                        bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
+                                        if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)':
+                                            st.session_state.log_history.append(f"✅ ¡Equipo encontrado en Bureau Veritas!")
+                                            res['proveedor'] = "Bureau Veritas"
+                                            res['cert'] = bv_res.get('cert', 'NO')
+                                            res['inf'] = bv_res.get('informe', 'NO')
                                             res['status'] = "VIGENTE (BV)"
                                             res['color'] = "VERDE"
-                                            res['obs_final'] = "Certificado obtenido de Bureau Veritas."
+                                            res['insp'] = bv_res.get('insp', res.get('insp'))
+                                            res['venc'] = bv_res.get('venc', res.get('venc'))
+                                            
+                                            obs_bv = bv_res.get('observaciones', '')
+                                            obs_final = "Obtenido de Bureau Veritas."
+                                            if obs_bv: obs_final += f"\nObservaciones BV: {obs_bv}"
+                                            res['obs_final'] = obs_final
                                             res['accion_final'] = "-"
                                         else:
                                             st.session_state.log_history.append(f"❌ Tampoco se encontró en Bureau Veritas.")
@@ -648,7 +658,7 @@ if check_password():
                                 else:
                                     st.session_state.log_history.append("❌ No hay credenciales configuradas para Bureau Veritas.")
                             except Exception as e:
-                                st.session_state.log_history.append(f"❌ Error en contingencia BV: {e}")
+                                st.session_state.log_history.append(f"❌ Error en búsqueda BV: {e}")
                                 
                         res_lista.append(res)
                         for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
@@ -672,7 +682,7 @@ if check_password():
                     # Generación de HTML
                     html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; vertical-align: middle; padding: 10px 20px; }}</style>
                     <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">
-                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
+                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
 
                     
                     excel_data = []
@@ -688,14 +698,14 @@ if check_password():
                             elif "AMARILLO" in st_text or "PRÓXIMO" in st_text or "GESTIÓN" in st_text or "REINSPECCIONAR" in st_text: bg, tx = "#FFEB9C", "#9C5700"
                             elif "ROJO" in st_text or "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
                         
-                        html += f'<tr><td>{r["id"]}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
+                        html += f'<tr><td>{r["id"]}</td><td>{r.get("proveedor", "Worklift")}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                         html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
                         html += f'<td>{cert_val}</td><td>{r["inf"]}</td>'
                         html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs_final", "-")}</td>'
                         html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
                         
                         row_dict = {
-                            "INTERNO": r["id"], "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"]
+                            "INTERNO": r["id"], "PROVEEDOR": r.get("proveedor", "Worklift"), "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"]
                         }
                             
                         row_dict.update({
