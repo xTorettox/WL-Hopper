@@ -419,10 +419,10 @@ class BureauVeritasBot:
 
             self.page.click('a.ctl00_menua_1[href="Busquedas.aspx"]')
             self.page.click('a#ctl00_ContentPlaceHolder1_lkBuscaEQ')
-            return True
+            return True, ""
         except Exception as e:
             print(f"Error BV Login: {e}")
-            return False
+            return False, str(e)
 
     def procesar_interno(self, interno, ruta_base, prefijo_cert="Certificado"):
         res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False}
