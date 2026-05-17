@@ -634,22 +634,52 @@ if check_password():
                                 if bv_usr and bv_pw:
                                     exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
                                     if exito_bv:
+                                        st.session_state.log_history.append("Iniciando conexión con Bureau Veritas...")
+                                        st.session_state.log_history.append("🔐 Login exitoso en Bureau Veritas.")
+                                        render_terminal()
+                                        
                                         bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
-                                        if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)':
+                                        if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
                                             st.session_state.log_history.append(f"✅ ¡Equipo encontrado en Bureau Veritas!")
                                             res['proveedor'] = "Bureau Veritas"
                                             res['cert'] = bv_res.get('cert', 'NO')
                                             res['inf'] = bv_res.get('informe', 'NO')
-                                            res['status'] = "VIGENTE (BV)"
-                                            res['color'] = "VERDE"
                                             res['insp'] = bv_res.get('insp', res.get('insp'))
                                             res['venc'] = bv_res.get('venc', res.get('venc'))
                                             
-                                            obs_bv = bv_res.get('observaciones', '')
-                                            obs_final = "Obtenido de Bureau Veritas."
-                                            if obs_bv: obs_final += f"\nObservaciones BV: {obs_bv}"
-                                            res['obs_final'] = obs_final
-                                            res['accion_final'] = "-"
+                                            res['log'] = [
+                                                f"✅ Interno encontrado en Bureau Veritas",
+                                                f"📄 Último Informe de Inspección: {res['insp']}",
+                                                f"📅 Fecha vencimiento certificado: {res['venc']}"
+                                            ]
+                                            
+                                            dias_restantes = -1
+                                            if res['venc'] != "-":
+                                                try:
+                                                    venc_dt = datetime.strptime(res['venc'], "%d/%m/%Y")
+                                                    dias_restantes = (venc_dt - datetime.now()).days
+                                                except:
+                                                    pass
+                                                    
+                                            if dias_restantes > 30:
+                                                res['status'] = "VIGENTE (BV)"
+                                                res['color'] = "VERDE"
+                                                res['obs_final'] = f"{dias_restantes} días de vigencia. Obtenido de BV."
+                                                res['accion_final'] = "-"
+                                            elif 0 <= dias_restantes <= 30:
+                                                res['status'] = "PRÓXIMO A VENCER (BV)"
+                                                res['color'] = "AMARILLO"
+                                                res['obs_final'] = f"{dias_restantes} días de vigencia. Obtenido de BV."
+                                                res['accion_final'] = "Coordinar recertificación"
+                                                res['log'].append("💡 Sugerencia: Coordinar recertificación")
+                                            else:
+                                                res['status'] = "VENCIDO (BV)"
+                                                res['color'] = "ROJO"
+                                                res['obs_final'] = "Último certificado vencido."
+                                                obs_bv = bv_res.get('observaciones', '')
+                                                if obs_bv: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
+                                                res['accion_final'] = "Coordinar recertificación urgente"
+                                                res['log'].append("💡 Sugerencia: Coordinar recertificación urgente")
                                         else:
                                             st.session_state.log_history.append(f"❌ Tampoco se encontró en Bureau Veritas.")
                                         bv_bot.cerrar()
