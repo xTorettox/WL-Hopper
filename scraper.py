@@ -429,21 +429,33 @@ class BureauVeritasBot:
             print(f"Error BV Login: {e}")
             return False, str(e)
 
-    def procesar_interno(self, interno, ruta_base, prefijo_cert="Certificado"):
-        res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False}
+    def procesar_interno(self, interno, ruta_base, bajar_cert=True, bajar_inf=False, prefijo_cert=""):
+        res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False, "insp": "-", "venc": "-", "observaciones": "", "informe": "NO"}
         try:
             self.page.check('input#ctl00_ContentPlaceHolder1_RBOpciones_1')
             self.page.fill('input#ctl00_ContentPlaceHolder1_txtNroBuscado', interno)
             self.page.click('input#ctl00_ContentPlaceHolder1_btnBusca')
 
             self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=10000)
-            fila = self.page.locator(f"tr:has-text('{interno}')").first
+            # Tomamos siempre la ÚLTIMA fila que es la más reciente en la tabla de BV
+            fila = self.page.locator(f"tr:has-text('{interno}')").last
             
             if fila.count() > 0:
-                boton_pdf = fila.locator('input[id*="ImgbtnCertificado"]').last
+                celdas = fila.locator("td")
+                fecha_insp = celdas.nth(2).inner_text().strip() if celdas.count() > 3 else "-"
+                fecha_venc = celdas.nth(3).inner_text().strip() if celdas.count() > 3 else "-"
                 
-                if boton_pdf.count() > 0:
-                    with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=15000) as response_info:
+                res["insp"] = fecha_insp
+                res["venc"] = fecha_venc
+                
+                venc_format = fecha_venc.replace('/', '-') if fecha_venc != "-" else "SinFecha"
+                prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
+                
+                # Botón de certificado
+                boton_pdf = fila.locator('input[id*="ImgbtnCertificado"]')
+                
+                if bajar_cert and boton_pdf.count() > 0:
+                    with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=15000):
                         boton_pdf.click()
                     
                     self.page.wait_for_timeout(3000)
@@ -462,13 +474,53 @@ class BureauVeritasBot:
                     
                     import base64
                     import os
-                    file_path = os.path.join(ruta_base, f"{prefijo_cert}_BV_{interno}.pdf")
+                    file_path = os.path.join(ruta_base, f"{prefijo}{interno}_Certificado_Vence_{venc_format}.pdf")
                     with open(file_path, "wb") as f:
                         f.write(base64.b64decode(pdf_bytes_b64))
                         
-                    res["status"] = "Encontrado en BV"
-                    res["cert"] = "Descargado"
+                    res["cert"] = "Descargado (BV)"
                     res["descargado"] = True
+                    
+                    self.page.go_back()
+                    self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=10000)
+                    fila = self.page.locator(f"tr:has-text('{interno}')").last
+                    
+                # Ingreso al detalle del informe
+                boton_informe = fila.locator('input[id*="BtnInforme"]')
+                if boton_informe.count() > 0:
+                    boton_informe.click()
+                    self.page.wait_for_selector('textarea#ctl00_ContentPlaceHolder1_txtConclusion', timeout=10000)
+                    
+                    obs_text = self.page.locator('textarea#ctl00_ContentPlaceHolder1_txtConclusion').input_value()
+                    res["observaciones"] = obs_text.strip()
+                    
+                    if bajar_inf:
+                        img_pdf = self.page.locator('input#ctl00_ContentPlaceHolder1_imgGeneraPDF')
+                        if img_pdf.count() > 0:
+                            with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=15000):
+                                img_pdf.click()
+                            
+                            self.page.wait_for_timeout(3000)
+                            
+                            pdf_bytes_b64 = self.page.evaluate("""
+                                () => {
+                                    return fetch(window.location.href)
+                                        .then(r => r.blob())
+                                        .then(blob => new Promise((resolve) => {
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                            reader.readAsDataURL(blob);
+                                        }));
+                                }
+                            """)
+                            
+                            file_path_inf = os.path.join(ruta_base, f"{prefijo}{interno}_Informe_Vence_{venc_format}.pdf")
+                            with open(file_path_inf, "wb") as f:
+                                f.write(base64.b64decode(pdf_bytes_b64))
+                                
+                            res["informe"] = "SI"
+                            
+                res["status"] = "VIGENTE (BV)" if res["descargado"] else "Encontrado en BV"
             
             self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx")
         except Exception as e:
