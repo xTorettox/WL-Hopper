@@ -365,7 +365,7 @@ if check_password():
     
 # --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
     with st.expander("🔐 Credenciales"):
-        st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifra.")
+        st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifrada.")
         
         wl_creds_dict = st.session_state.get("wl_creds_dict", {})
         bv_creds_dict = st.session_state.get("bv_creds_dict", {})
