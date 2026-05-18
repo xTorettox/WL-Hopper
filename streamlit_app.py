@@ -663,18 +663,18 @@ if check_password():
                                                     pass
                                                     
                                             if dias_restantes > 30:
-                                                res['status'] = "VIGENTE (BV)"
+                                                res['status'] = "VIGENTE"
                                                 res['color'] = "VERDE"
                                                 res['obs_final'] = f"{dias_restantes} días de vigencia."
                                                 res['accion_final'] = "-"
                                             elif 0 <= dias_restantes <= 30:
-                                                res['status'] = "PRÓXIMO A VENCER (BV)"
+                                                res['status'] = "PRÓXIMO A VENCER"
                                                 res['color'] = "AMARILLO"
                                                 res['obs_final'] = f"{dias_restantes} días de vigencia."
                                                 res['accion_final'] = "Coordinar recertificación"
                                                 res['log'].append("💡 Sugerencia: Coordinar recertificación")
                                             else:
-                                                res['status'] = "VENCIDO (BV)"
+                                                res['status'] = "VENCIDO"
                                                 res['color'] = "ROJO"
                                                 res['obs_final'] = "Último certificado vencido."
                                                 obs_bv = bv_res.get('observaciones', '')
