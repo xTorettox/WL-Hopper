@@ -332,7 +332,7 @@ if check_password():
             Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para descargar PDFs en segundo plano.
             """)
         
-        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de nuestros equipos desde el sitio web de Worklift.")
+        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de nuestros equipos desde los sitios web de Worklift y Bureau Veritas.")
         
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
@@ -495,6 +495,7 @@ if check_password():
                     paste_result.image_data.save(buf, format="PNG")
                     buf.name = "pasted_image.png"
                     buf.type = "image/png"
+                    buf.size = len(buf.getvalue())
                     archivo_subido = buf
                     st.success("✅ Imagen pegada cargada correctamente.")
         except ImportError:
