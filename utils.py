@@ -34,7 +34,7 @@ def extraer_internos(texto_sucio):
     ruta_viejos = "internos_viejos.txt"
     if os.path.exists(ruta_viejos):
         try:
-            with open(ruta_viejos, "r") as f:
+            with open(ruta_viejos, "r", encoding="utf-8") as f:
                 base_viejos = {line.strip().upper() for line in f if line.strip()}
         except Exception as e:
             print(f"Error al leer internos_viejos.txt: {e}")
@@ -42,16 +42,15 @@ def extraer_internos(texto_sucio):
     resultado = []
     vistos = set()
     
-    # Expresión regular que captura tanto el formato nuevo pegado como palabras sueltas que podrían ser viejos
-    # [EA]\d{6} captura los nuevos. \b[A-Z0-9]{3,7}\b captura posibles viejos (3 a 7 caracteres alfanuméricos)
-    patron_general = r'[EA]\d{6}|\b[A-Z0-9]{3,7}\b'
+    # Expresión regular que captura todos los bloques alfanuméricos
+    patron_general = r'[A-Z0-9]+'
     candidatos = re.findall(patron_general, texto_upper)
     
     for c in candidatos:
         if c in vistos:
             continue
             
-        # Es un interno nuevo válido?
+        # Es un interno nuevo válido? (E o A seguido de 6 números)
         if re.match(r'^[EA]\d{6}$', c):
             resultado.append(c)
             vistos.add(c)
