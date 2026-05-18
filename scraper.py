@@ -164,6 +164,8 @@ class WLHopperBot:
             cookies = {c['name']: c['value'] for c in self.context.cookies()}
 
             ruta_informe_descargado = None
+            ruta_cert_descargado = None
+            archivos_wl = []
 
             for link in links:
                 txt = link.inner_text().upper()
@@ -185,14 +187,18 @@ class WLHopperBot:
                     if r.status_code == 200:
                         tipo = "Certificado" if es_cert else "Informe"
                         nombre_base = f"{interno}_{tipo}_Vence_{vencimiento_real.replace('/','-')}.pdf"
-                        if es_cert:
-                            nombre = f"{prefijo_cert}_{nombre_base}"
-                        else:
-                            nombre = nombre_base
+                        prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
+                        nombre = f"{prefijo}{nombre_base}"
+                        
                         ruta_archivo = os.path.join(ruta_base, nombre)
                         with open(ruta_archivo, "wb") as f:
                             f.write(r.content)
-                        if es_cert: descargo_cert = True
+                            
+                        archivos_wl.append(ruta_archivo)
+                        
+                        if es_cert: 
+                            descargo_cert = True
+                            ruta_cert_descargado = ruta_archivo
                         if es_inf: 
                             descargo_inf = True
                             ruta_informe_descargado = ruta_archivo
@@ -358,11 +364,11 @@ class WLHopperBot:
                 "accion_final": accion_final,
                 "color": color_final,
                 "log": log_pasos,
-                "ruta_informe_forzado": ruta_informe_descargado if hubo_descarga_forzada else None
+                "archivos_descargados": archivos_wl
             }
 
         except Exception as e:
-            return {"status": "Error", "insp": "-", "venc": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"], "ruta_informe_forzado": None}
+            return {"status": "Error", "insp": "-", "venc": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"], "archivos_descargados": []}
         
     def cerrar(self):
         if self.browser: self.browser.close()
@@ -451,6 +457,7 @@ class BureauVeritasBot:
                 
                 venc_format = fecha_venc.replace('/', '-') if fecha_venc != "-" else "SinFecha"
                 prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
+                archivos_bv = []
                 
                 # Botón de certificado
                 boton_pdf = fila.locator('input[id*="ImgbtnCertificado"]')
@@ -478,6 +485,7 @@ class BureauVeritasBot:
                     file_path = os.path.join(ruta_base, f"{prefijo}{interno}_Certificado_Vence_{venc_format}.pdf")
                     with open(file_path, "wb") as f:
                         f.write(base64.b64decode(pdf_bytes_b64))
+                    archivos_bv.append(file_path)
                         
                     res["cert"] = "SI"
                     res["descargado"] = True
@@ -519,6 +527,7 @@ class BureauVeritasBot:
                             file_path_inf = os.path.join(ruta_base, f"{prefijo}{interno}_Informe_Vence_{venc_format}.pdf")
                             with open(file_path_inf, "wb") as f:
                                 f.write(base64.b64decode(pdf_bytes_b64))
+                            archivos_bv.append(file_path_inf)
                                 
                             res["informe"] = "SI"
                             
@@ -528,6 +537,7 @@ class BureauVeritasBot:
         except Exception as e:
             print(f"Error procesando {interno} en BV: {e}")
             
+        res["archivos_descargados"] = archivos_bv if 'archivos_bv' in locals() else []
         return res
 
     def cerrar(self):
