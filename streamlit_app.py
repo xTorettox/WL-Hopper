@@ -623,81 +623,133 @@ if check_password():
                         
                         res['proveedor'] = "Worklift"
                         
-                        # --- CONTINGENCIA BUREAU VERITAS ---
-                        if res.get('cert') == 'NO' or res.get('status') in ['VENCIDO', 'RECHAZADO', 'No se pudo encontrar']:
-                            st.session_state.log_history.append("⚠️ Certificado inválido/ausente en WL. Iniciando búsqueda en Bureau Veritas...")
-                            render_terminal()
-                            try:
-                                from scraper import BureauVeritasBot
-                                bv_bot = BureauVeritasBot(headless=True)
-                                bv_usr = st.session_state.get("bv_user")
-                                bv_pw = st.session_state.get("bv_pw")
-                                if bv_usr and bv_pw:
-                                    exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
-                                    if exito_bv:
-                                        st.session_state.log_history.append("Iniciando conexión con Bureau Veritas...")
-                                        st.session_state.log_history.append("🔐 Login exitoso en Bureau Veritas.")
-                                        render_terminal()
+                        # --- AUDITORÍA DOBLE: BUREAU VERITAS ---
+                        # Invocamos BV siempre para realizar la matriz comparativa
+                        from scraper import BureauVeritasBot
+                        bv_usr = st.session_state.get("bv_user")
+                        bv_pw = st.session_state.get("bv_pw")
+                        
+                        if bv_usr and bv_pw:
+                            bv_bot = BureauVeritasBot(headless=True)
+                            exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
+                            
+                            if exito_bv:
+                                st.session_state.log_history.append("Realizando auditoría doble en Bureau Veritas...")
+                                render_terminal()
+                                
+                                bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
+                                bv_bot.cerrar()
+                                
+                                # Si BV encontró algo útil, comparamos con WL
+                                if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
+                                    
+                                    # Funciones helper para fechas
+                                    def get_dt(d_str):
+                                        if not d_str or d_str == "-": return datetime.min
+                                        try: return datetime.strptime(d_str, "%d/%m/%Y")
+                                        except: return datetime.min
                                         
-                                        bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
-                                        if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
-                                            st.session_state.log_history.append(f"✅ ¡Equipo encontrado en Bureau Veritas!")
-                                            res['proveedor'] = "Bureau Veritas"
-                                            res['cert'] = bv_res.get('cert', 'NO')
-                                            res['inf'] = bv_res.get('informe', 'NO')
-                                            res['insp'] = bv_res.get('insp', res.get('insp'))
-                                            res['venc'] = bv_res.get('venc', res.get('venc'))
-                                            
-                                            res['log'] = [
-                                                f"✅ Interno encontrado en Bureau Veritas",
-                                                f"📄 Último Informe de Inspección: {res['insp']}",
-                                                f"📅 Fecha vencimiento certificado: {res['venc']}"
-                                            ]
-                                            
-                                            dias_restantes = -1
-                                            if res['venc'] != "-":
-                                                try:
-                                                    venc_dt = datetime.strptime(res['venc'], "%d/%m/%Y")
-                                                    dias_restantes = (venc_dt - datetime.now()).days
-                                                except:
-                                                    pass
-                                                    
-                                            if dias_restantes > 30:
-                                                res['status'] = "VIGENTE"
-                                                res['color'] = "VERDE"
-                                                res['obs_final'] = f"{dias_restantes} días de vigencia."
-                                                res['accion_final'] = "-"
-                                            elif 0 <= dias_restantes <= 30:
-                                                res['status'] = "PRÓXIMO A VENCER"
-                                                res['color'] = "AMARILLO"
-                                                res['obs_final'] = f"{dias_restantes} días de vigencia."
-                                                res['accion_final'] = "Coordinar recertificación"
-                                                res['log'].append("💡 Sugerencia: Coordinar recertificación")
-                                            else:
-                                                res['status'] = "VENCIDO"
-                                                res['color'] = "ROJO"
-                                                res['obs_final'] = "Último certificado vencido."
-                                                obs_bv = bv_res.get('observaciones', '')
-                                                if obs_bv: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
-                                                res['accion_final'] = "Coordinar recertificación urgente"
-                                                res['log'].append("💡 Sugerencia: Coordinar recertificación urgente")
-                                                
-                                            # Borramos el informe forzado de WL si descargamos uno nuevo o si no queríamos informe
-                                            old_inf = res.get("ruta_informe_forzado")
-                                            if old_inf and os.path.exists(old_inf):
-                                                try:
-                                                    os.remove(old_inf)
-                                                except:
-                                                    pass
-                                        else:
-                                            st.session_state.log_history.append(f"❌ Tampoco se encontró en Bureau Veritas.")
-                                        bv_bot.cerrar()
+                                    wl_v_dt = get_dt(res.get('venc'))
+                                    bv_v_dt = get_dt(bv_res.get('venc'))
+                                    
+                                    wl_i_dt = get_dt(res.get('insp'))
+                                    bv_i_dt = get_dt(bv_res.get('insp'))
+                                    
+                                    hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                                    
+                                    bv_tiene_cert_vigente = (bv_v_dt >= hoy)
+                                    wl_tiene_cert_vigente = (wl_v_dt >= hoy)
+                                    
+                                    gana_bv_cert = False
+                                    gana_bv_inf = False
+                                    
+                                    # DECISIÓN CERTIFICADO: Gana la fecha de vencimiento más lejana si es válida
+                                    if bv_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
+                                        gana_bv_cert = True
+                                        
+                                    # DECISIÓN INFORME: Comparamos inspecciones (solo si nadie ganó cert, o si el ganador es BV)
+                                    # Si BV gana cert, naturalmente asume el informe porque aprueba ese cert
+                                    if gana_bv_cert:
+                                        gana_bv_inf = True
                                     else:
-                                        st.session_state.log_history.append(f"❌ Falló inicio de sesión en Bureau Veritas. (Detalle: {error_bv})")
+                                        # Si nadie ganó cert (o ganó WL pero queremos asegurar la inspección más nueva)
+                                        # Nos quedamos con el que tenga la fecha de inspección más nueva
+                                        if bv_i_dt > wl_i_dt:
+                                            gana_bv_inf = True
+                                            
+                                    if gana_bv_cert or gana_bv_inf:
+                                        st.session_state.log_history.append(f"✅ ¡Datos más recientes encontrados en Bureau Veritas!")
+                                        res['proveedor'] = "Bureau Veritas"
+                                        res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
+                                        res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('informe', 'NO')
+                                        
+                                        if gana_bv_cert:
+                                            res['venc'] = bv_res.get('venc', res.get('venc'))
+                                        if gana_bv_inf:
+                                            res['insp'] = bv_res.get('insp', res.get('insp'))
+                                        
+                                        # Recalcular días restantes para status
+                                        dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
+                                        
+                                        if dias_restantes > 30:
+                                            res['status'] = "VIGENTE"
+                                            res['color'] = "VERDE"
+                                            res['obs_final'] = f"{dias_restantes} días de vigencia."
+                                            res['accion_final'] = "-"
+                                        elif 0 <= dias_restantes <= 30:
+                                            res['status'] = "PRÓXIMO A VENCER"
+                                            res['color'] = "AMARILLO"
+                                            res['obs_final'] = f"{dias_restantes} días de vigencia."
+                                            res['accion_final'] = "Coordinar recertificación"
+                                        else:
+                                            res['status'] = "VENCIDO"
+                                            res['color'] = "ROJO"
+                                            res['obs_final'] = "Último certificado vencido."
+                                            obs_bv = bv_res.get('observaciones', '')
+                                            if obs_bv and gana_bv_inf: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
+                                            res['accion_final'] = "Coordinar recertificación urgente"
+                                            
+                                        res['log'] = [
+                                            f"📄 Último Informe de Inspección: {res['insp']} ({'BV' if gana_bv_inf else 'WL'})",
+                                            f"📅 Fecha vencimiento certificado: {res['venc']} ({'BV' if gana_bv_cert else 'WL'})"
+                                        ]
+                                        if dias_restantes <= 30:
+                                            res['log'].append(f"💡 Sugerencia: {res['accion_final']}")
+                                            
+                                        # ELIMINAR ARCHIVOS PERDEDORES (WORKLIFT)
+                                        archivos_wl = res.get("archivos_descargados", [])
+                                        for f_path in archivos_wl:
+                                            if os.path.exists(f_path):
+                                                es_wl_cert = "Certificado" in f_path
+                                                es_wl_inf = "Informe" in f_path
+                                                if (es_wl_cert and gana_bv_cert) or (es_wl_inf and gana_bv_inf):
+                                                    try: os.remove(f_path)
+                                                    except: pass
+                                                    
+                                        # Eliminar archivos perdedores de BV (los que descargó pero perdió)
+                                        archivos_bv = bv_res.get("archivos_descargados", [])
+                                        for f_path in archivos_bv:
+                                            if os.path.exists(f_path):
+                                                es_bv_cert = "Certificado" in f_path
+                                                es_bv_inf = "Informe" in f_path
+                                                if (es_bv_cert and not gana_bv_cert) or (es_bv_inf and not gana_bv_inf):
+                                                    try: os.remove(f_path)
+                                                    except: pass
+                                                    
+                                    else:
+                                        # Ganó WL. Borramos los que bajó BV (si bajó algo)
+                                        archivos_bv = bv_res.get("archivos_descargados", [])
+                                        for f_path in archivos_bv:
+                                            if os.path.exists(f_path):
+                                                try: os.remove(f_path)
+                                                except: pass
                                 else:
-                                    st.session_state.log_history.append("❌ No hay credenciales configuradas para Bureau Veritas.")
-                            except Exception as e:
-                                st.session_state.log_history.append(f"❌ Error en búsqueda BV: {e}")
+                                    st.session_state.log_history.append(f"❌ Equipo no encontrado en Bureau Veritas.")
+                            else:
+                                st.session_state.log_history.append(f"❌ Falló inicio de sesión en Bureau Veritas. (Detalle: {error_bv})")
+                        else:
+                            st.session_state.log_history.append("❌ No hay credenciales configuradas para Bureau Veritas.")
+                            
                                 
                         res_lista.append(res)
                         for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
