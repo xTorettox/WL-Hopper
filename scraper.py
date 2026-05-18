@@ -357,11 +357,12 @@ class WLHopperBot:
                 "obs_final": obs_final,
                 "accion_final": accion_final,
                 "color": color_final,
-                "log": log_pasos
+                "log": log_pasos,
+                "ruta_informe_forzado": ruta_informe_descargado if hubo_descarga_forzada else None
             }
 
         except Exception as e:
-            return {"status": "Error", "insp": "-", "venc": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"]}
+            return {"status": "Error", "insp": "-", "venc": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"], "ruta_informe_forzado": None}
         
     def cerrar(self):
         if self.browser: self.browser.close()
@@ -478,7 +479,7 @@ class BureauVeritasBot:
                     with open(file_path, "wb") as f:
                         f.write(base64.b64decode(pdf_bytes_b64))
                         
-                    res["cert"] = "Descargado (BV)"
+                    res["cert"] = "SI"
                     res["descargado"] = True
                     
                     self.page.go_back()
@@ -488,6 +489,7 @@ class BureauVeritasBot:
                 # Ingreso al detalle del informe
                 boton_informe = fila.locator('input[id*="BtnInforme"]')
                 if boton_informe.count() > 0:
+                    res["informe"] = "SI"
                     boton_informe.click()
                     self.page.wait_for_selector('textarea#ctl00_ContentPlaceHolder1_txtConclusion', timeout=10000)
                     
