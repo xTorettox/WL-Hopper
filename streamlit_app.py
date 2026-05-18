@@ -332,7 +332,7 @@ if check_password():
             Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para descargar PDFs en segundo plano.
             """)
         
-        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de nuestros equipos desde el sitio web de Worklift y Bureau Veritas.")
+        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de nuestros equipos desde el sitio web de Worklift.")
         
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
@@ -664,12 +664,12 @@ if check_password():
                                             if dias_restantes > 30:
                                                 res['status'] = "VIGENTE (BV)"
                                                 res['color'] = "VERDE"
-                                                res['obs_final'] = f"{dias_restantes} días de vigencia. Obtenido de BV."
+                                                res['obs_final'] = f"{dias_restantes} días de vigencia."
                                                 res['accion_final'] = "-"
                                             elif 0 <= dias_restantes <= 30:
                                                 res['status'] = "PRÓXIMO A VENCER (BV)"
                                                 res['color'] = "AMARILLO"
-                                                res['obs_final'] = f"{dias_restantes} días de vigencia. Obtenido de BV."
+                                                res['obs_final'] = f"{dias_restantes} días de vigencia."
                                                 res['accion_final'] = "Coordinar recertificación"
                                                 res['log'].append("💡 Sugerencia: Coordinar recertificación")
                                             else:
@@ -680,6 +680,14 @@ if check_password():
                                                 if obs_bv: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
                                                 res['accion_final'] = "Coordinar recertificación urgente"
                                                 res['log'].append("💡 Sugerencia: Coordinar recertificación urgente")
+                                                
+                                            # Borramos el informe forzado de WL si descargamos uno nuevo o si no queríamos informe
+                                            old_inf = res.get("ruta_informe_forzado")
+                                            if old_inf and os.path.exists(old_inf):
+                                                try:
+                                                    os.remove(old_inf)
+                                                except:
+                                                    pass
                                         else:
                                             st.session_state.log_history.append(f"❌ Tampoco se encontró en Bureau Veritas.")
                                         bv_bot.cerrar()
