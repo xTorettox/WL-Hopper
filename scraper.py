@@ -507,29 +507,23 @@ class BureauVeritasBot:
                     if bajar_inf:
                         img_pdf = self.page.locator('input#ctl00_ContentPlaceHolder1_imgGeneraPDF')
                         if img_pdf.count() > 0:
-                            with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=15000):
-                                img_pdf.click()
-                            
-                            self.page.wait_for_timeout(3000)
-                            
-                            pdf_bytes_b64 = self.page.evaluate("""
-                                () => {
-                                    return fetch(window.location.href)
-                                        .then(r => r.blob())
-                                        .then(blob => new Promise((resolve) => {
-                                            const reader = new FileReader();
-                                            reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                                            reader.readAsDataURL(blob);
-                                        }));
-                                }
-                            """)
-                            
-                            file_path_inf = os.path.join(ruta_base, f"{prefijo}{interno}_Informe_Vence_{venc_format}.pdf")
-                            with open(file_path_inf, "wb") as f:
-                                f.write(base64.b64decode(pdf_bytes_b64))
-                            archivos_bv.append(file_path_inf)
+                            print(f"[DEBUG BV] Botón de Informe PDF encontrado. Intentando click...")
+                            try:
+                                with self.page.expect_download(timeout=15000) as download_info:
+                                    img_pdf.click()
                                 
-                            res["informe"] = "SI"
+                                download = download_info.value
+                                file_path_inf = os.path.join(ruta_base, f"{prefijo}{interno}_Informe_Vence_{venc_format}.pdf")
+                                download.save_as(file_path_inf)
+                                
+                                archivos_bv.append(file_path_inf)
+                                print(f"[DEBUG BV] Informe descargado correctamente en: {file_path_inf}")
+                                    
+                                res["informe"] = "SI"
+                            except Exception as e:
+                                print(f"[DEBUG BV] Error durante la descarga nativa del informe: {e}")
+                        else:
+                            print(f"[DEBUG BV] El botón imgGeneraPDF NO se encontró en la página de detalles.")
                             
                 res["status"] = "VIGENTE (BV)" if res["descargado"] else "Encontrado en BV"
             
