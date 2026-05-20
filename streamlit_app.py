@@ -76,7 +76,7 @@ def registrar_metrica(interno, fuente, exito=True):
             "equipo": interno,
             "fuente": fuente,
             "fecha": datetime.now().isoformat(),
-            "minutos_ahorrados": minutos,
+            "minutos_ahorrados": minutes,
             "exito": exito,
             "ip": f"{ip} ({ubicacion})"
         }
@@ -231,17 +231,34 @@ def check_password():
 # --- FLUJO PRINCIPAL ---
 if check_password():
 
-    # Detección de móvil y solicitud de permisos para notificaciones en el navegador
+    # Detección de móvil, inicialización de receptor en la ventana padre y solicitud de permisos legítima
     components.html("""
         <script>
         const isMobile = window.innerWidth < 768;
         window.parent.postMessage({type: 'streamlit:setComponentValue', value: isMobile}, '*');
         
-        // Solicitar permiso para las notificaciones push nativas
-        if ("Notification" in window) {
-            if (Notification.permission !== "granted" && Notification.permission !== "denied") {
-                Notification.requestPermission();
+        // Inyectamos el handler de notificaciones directamente en la ventana padre (fuera del iframe)
+        if (!window.parent.__wlHopperSetup) {
+            window.parent.__wlHopperSetup = true;
+            
+            // Solicitar permisos desde el contexto del padre
+            if ("Notification" in window.parent) {
+                if (window.parent.Notification.permission !== "granted" && window.parent.Notification.permission !== "denied") {
+                    window.parent.Notification.requestPermission();
+                }
             }
+            
+            // Escuchar el grito del iframe para mostrar la notificación real
+            window.parent.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'wl_hopper_notification') {
+                    if ("Notification" in window.parent && window.parent.Notification.permission === "granted") {
+                        new window.parent.Notification(event.data.title, {
+                            body: event.data.body,
+                            icon: event.data.icon
+                        });
+                    }
+                }
+            });
         }
         </script>
     """, height=0)
@@ -761,7 +778,7 @@ if check_password():
                         res_lista.append(res)
                         for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
                         
-                        # Inyección de métricas (si no es prueba and no falló por completo)
+                        # Inyección de métricas (si no es prueba y no falló por completo)
                         if not modo_pruebas and res.get('status') != "No se pudo encontrar":
                             # Calculamos éxito si descargó algo o si está vigente y verde
                             fue_exito = ("VERDE" in res.get('color', '') or "Descargado" in res.get('cert', ''))
@@ -953,27 +970,27 @@ if check_password():
                 </div>
 
                 <script>
-                // Disparar notificación push nativa al terminar
-                if ("Notification" in window && Notification.permission === "granted") {{
-                    const notification = new Notification("🚀 ¡Proceso de WL Hopper Finalizado!", {{
-                        body: "Ya tenés disponible la tabla y los archivos listos para descargar.",
-                        icon: "img/favicon.png"
-                    }});
-                    
-                    // Pequeño beep sonoro opcional aprovechando la API de Audio
-                    try {{
-                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        const oscillator = audioCtx.createOscillator();
-                        const gainNode = audioCtx.createGain();
-                        oscillator.connect(gainNode);
-                        gainNode.connect(audioCtx.destination);
-                        oscillator.type = 'sine';
-                        oscillator.frequency.setValueAtTime(587.33, audioCtx.currentTime); // Nota D5
-                        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                        oscillator.start();
-                        oscillator.stop(audioCtx.currentTime + 0.15);
-                    }} catch(e) {{}}
-                }}
+                // ENVIAR MENSAJE AL PADRE: Acá disparamos el aviso para romper el bloqueo del iframe
+                window.parent.postMessage({
+                    type: 'wl_hopper_notification',
+                    title: '🚀 ¡Proceso de WL Hopper Finalizado!',
+                    body: 'Ya tenés disponible la tabla y los archivos listos para descargar.',
+                    icon: 'img/favicon.png'
+                }, '*');
+
+                // Mantengo el beep sonoro interno como feedback inmediato
+                try {{
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(587.33, audioCtx.currentTime); // Nota D5
+                    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                    oscillator.start();
+                    oscillator.stop(audioCtx.currentTime + 0.15);
+                }} catch(e) {{}}
 
                 // Detección de dispositivo
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
