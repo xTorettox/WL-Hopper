@@ -76,7 +76,7 @@ def registrar_metrica(interno, fuente, exito=True):
             "equipo": interno,
             "fuente": fuente,
             "fecha": datetime.now().isoformat(),
-            "minutos_ahorrados": minutes,
+            "minutos_ahorrados": minutos,
             "exito": exito,
             "ip": f"{ip} ({ubicacion})"
         }
@@ -231,35 +231,11 @@ def check_password():
 # --- FLUJO PRINCIPAL ---
 if check_password():
 
-    # Detección de móvil, inicialización de receptor en la ventana padre y solicitud de permisos legítima
+    # Detección de móvil
     components.html("""
         <script>
         const isMobile = window.innerWidth < 768;
         window.parent.postMessage({type: 'streamlit:setComponentValue', value: isMobile}, '*');
-        
-        // Inyectamos el handler de notificaciones directamente en la ventana padre (fuera del iframe)
-        if (!window.parent.__wlHopperSetup) {
-            window.parent.__wlHopperSetup = true;
-            
-            // Solicitar permisos desde el contexto del padre
-            if ("Notification" in window.parent) {
-                if (window.parent.Notification.permission !== "granted" && window.parent.Notification.permission !== "denied") {
-                    window.parent.Notification.requestPermission();
-                }
-            }
-            
-            // Escuchar el grito del iframe para mostrar la notificación real
-            window.parent.addEventListener('message', function(event) {
-                if (event.data && event.data.type === 'wl_hopper_notification') {
-                    if ("Notification" in window.parent && window.parent.Notification.permission === "granted") {
-                        new window.parent.Notification(event.data.title, {
-                            body: event.data.body,
-                            icon: event.data.icon
-                        });
-                    }
-                }
-            });
-        }
         </script>
     """, height=0)
 
@@ -608,6 +584,9 @@ if check_password():
     
             st.session_state.proceso_completo = False
             
+            # --- CAMBIAR TÍTULO A PROCESANDO ---
+            components.html("""<script>window.parent.document.title = "⏳ (Procesando...) WL Hopper";</script>""", height=0)
+            
             # Formato de log inicial enriquecido
             si_no = lambda b: "Sí" if b else "No"
             st.session_state.log_history = [
@@ -629,6 +608,7 @@ if check_password():
             if not lista:
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar en el cuadro de texto.")
                 render_terminal()
+                components.html("""<script>window.parent.document.title = "WL Hopper - Sullair Argentina";</script>""", height=0)
             else:
                 st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
                 render_terminal()
@@ -837,6 +817,7 @@ if check_password():
                     st.session_state.log_history.append("❌ ERROR: Credenciales de Worklift incorrectas.")
                     render_terminal()
                     st.error("No se pudo iniciar sesión. Verificá tu usuario y contraseña de Worklift.")
+                    components.html("""<script>window.parent.document.title = "WL Hopper - Sullair Argentina";</script>""", height=0)
                 
     st.divider()
     
@@ -970,27 +951,15 @@ if check_password():
                 </div>
 
                 <script>
-                // ENVIAR MENSAJE AL PADRE: Acá disparamos el aviso para romper el bloqueo del iframe
-                window.parent.postMessage({
-                    type: 'wl_hopper_notification',
-                    title: '🚀 ¡Proceso de WL Hopper Finalizado!',
-                    body: 'Ya tenés disponible la tabla y los archivos listos para descargar.',
-                    icon: 'img/favicon.png'
-                }, '*');
-
-                // Mantengo el beep sonoro interno como feedback inmediato
-                try {{
-                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioCtx.createOscillator();
-                    const gainNode = audioCtx.createGain();
-                    oscillator.connect(gainNode);
-                    gainNode.connect(audioCtx.destination);
-                    oscillator.type = 'sine';
-                    oscillator.frequency.setValueAtTime(587.33, audioCtx.currentTime); // Nota D5
-                    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                    oscillator.start();
-                    oscillator.stop(audioCtx.currentTime + 0.15);
-                }} catch(e) {{}}
+                // CAMBIAR TÍTULO DE LA PESTAÑA DEL PADRE A ¡LISTO!
+                window.parent.document.title = "📢 ¡LISTO! - WL Hopper";
+                
+                // Efecto titileo opcional por si el usuario está en otra pestaña
+                let toggle = true;
+                setInterval(() => {{
+                    window.parent.document.title = toggle ? "📢 ¡PROCESO LISTO!" : "🚀 WL Hopper";
+                    toggle = !toggle;
+                }}, 1500);
 
                 // Detección de dispositivo
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
