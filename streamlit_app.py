@@ -584,9 +584,6 @@ if check_password():
     
             st.session_state.proceso_completo = False
             
-            # --- CAMBIAR TÍTULO A PROCESANDO ---
-            components.html("""<script>window.parent.document.title = "⏳ (Procesando...) WL Hopper";</script>""", height=0)
-            
             # Formato de log inicial enriquecido
             si_no = lambda b: "Sí" if b else "No"
             st.session_state.log_history = [
@@ -608,7 +605,6 @@ if check_password():
             if not lista:
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar en el cuadro de texto.")
                 render_terminal()
-                components.html("""<script>window.parent.document.title = "WL Hopper - Sullair Argentina";</script>""", height=0)
             else:
                 st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
                 render_terminal()
@@ -817,7 +813,6 @@ if check_password():
                     st.session_state.log_history.append("❌ ERROR: Credenciales de Worklift incorrectas.")
                     render_terminal()
                     st.error("No se pudo iniciar sesión. Verificá tu usuario y contraseña de Worklift.")
-                    components.html("""<script>window.parent.document.title = "WL Hopper - Sullair Argentina";</script>""", height=0)
                 
     st.divider()
     
@@ -951,16 +946,6 @@ if check_password():
                 </div>
 
                 <script>
-                // CAMBIAR TÍTULO DE LA PESTAÑA DEL PADRE A ¡LISTO!
-                window.parent.document.title = "📢 ¡LISTO! - WL Hopper";
-                
-                // Efecto titileo opcional por si el usuario está en otra pestaña
-                let toggle = true;
-                setInterval(() => {{
-                    window.parent.document.title = toggle ? "📢 ¡PROCESO LISTO!" : "🚀 WL Hopper";
-                    toggle = !toggle;
-                }}, 1500);
-
                 // Detección de dispositivo
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                 if (isMobile) {{
