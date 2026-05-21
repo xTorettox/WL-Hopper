@@ -102,7 +102,7 @@ class WLHopperBot:
             if not candidatos:
                 return {
                     "status": "No se pudo encontrar", 
-                    "venc": "-", "insp": "-", "cert": "NO", "inf": "NO", 
+                    "venc": "-", "venc_real": "-", "insp": "-", "cert": "NO", "inf": "NO", 
                     "det": "No se halló el interno en Worklift", 
                     "log": ["❌ Interno no encontrado en la tabla."]
                 }
@@ -237,6 +237,8 @@ class WLHopperBot:
             else:
                 fecha_venc_base = _parse_date(fila_reciente["venc"])
                 venc_mostrar = fila_reciente["venc"]
+            
+            venc_real = venc_mostrar
                 
             if es_semestral:
                 # La vigencia es 180 días desde la inspección válida
@@ -358,6 +360,7 @@ class WLHopperBot:
                 "status": estado_final,
                 "insp": fila_reciente["insp"],
                 "venc": venc_mostrar,
+                "venc_real": venc_real,
                 "cert": "SI" if descargo_cert else "NO",
                 "inf": "SI" if existe_inf else "NO",
                 "obs_final": obs_final,
@@ -368,7 +371,7 @@ class WLHopperBot:
             }
 
         except Exception as e:
-            return {"status": "Error", "insp": "-", "venc": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"], "archivos_descargados": []}
+            return {"status": "Error", "insp": "-", "venc": "-", "venc_real": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"], "archivos_descargados": []}
         
     def cerrar(self):
         if self.browser: self.browser.close()
