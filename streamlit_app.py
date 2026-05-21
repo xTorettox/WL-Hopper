@@ -649,7 +649,7 @@ if check_password():
                                         try: return datetime.strptime(d_str, "%d/%m/%Y")
                                         except: return datetime.min
                                         
-                                    wl_v_dt = get_dt(res.get('venc'))
+                                    wl_v_dt = get_dt(res.get('venc_real') if 'venc_real' in res else res.get('venc'))
                                     bv_v_dt = get_dt(bv_res.get('venc'))
                                     
                                     wl_i_dt = get_dt(res.get('insp'))
@@ -683,10 +683,22 @@ if check_password():
                                         res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
                                         res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('informe', 'NO')
                                         
-                                        if gana_bv_cert:
-                                            res['venc'] = bv_res.get('venc', res.get('venc'))
                                         if gana_bv_inf:
                                             res['insp'] = bv_res.get('insp', res.get('insp'))
+                                            
+                                        # Guardamos venc_real (el vencimiento anual de BV o el de WL)
+                                        res['venc_real'] = bv_res.get('venc') if gana_bv_cert else res.get('venc_real', res.get('venc'))
+                                        
+                                        if es_semestral:
+                                            # Vencimiento semestral es 180 días desde la inspección ganadora
+                                            i_dt = get_dt(res['insp'])
+                                            if i_dt != datetime.min:
+                                                res['venc'] = (i_dt + timedelta(days=180)).strftime("%d/%m/%Y")
+                                            else:
+                                                res['venc'] = "-"
+                                        else:
+                                            if gana_bv_cert:
+                                                res['venc'] = bv_res.get('venc', res.get('venc'))
                                         
                                         # Recalcular días restantes para status
                                         dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
@@ -704,7 +716,10 @@ if check_password():
                                         else:
                                             res['status'] = "VENCIDO"
                                             res['color'] = "ROJO"
-                                            res['obs_final'] = "Último certificado vencido."
+                                            if es_semestral:
+                                                res['obs_final'] = f"Último certificado vencido en {res['venc']}." if res['venc'] != "-" else "Último certificado vencido."
+                                            else:
+                                                res['obs_final'] = "Último certificado vencido."
                                             obs_bv = bv_res.get('observaciones', '')
                                             if obs_bv and gana_bv_inf: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
                                             res['accion_final'] = "Coordinar recertificación urgente"
@@ -772,10 +787,12 @@ if check_password():
         
                     # Generación de HTML
                     html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; vertical-align: middle; padding: 10px 20px; }}</style>
-                    <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">
-                    <tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>"""
+                    <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">"""
+                    if es_semestral:
+                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO SEMESTRAL</th><th>VENCIMIENTO REAL</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
+                    else:
+                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
 
-                    
                     excel_data = []
                     for r in res_lista:
                         bg, tx, st_text = "#FFFFFF", "#000000", r['status'].upper()
@@ -790,14 +807,31 @@ if check_password():
                             elif "ROJO" in st_text or "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
                         
                         html += f'<tr><td>{r["id"]}</td><td>{r.get("proveedor", "Worklift")}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
-                        html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
+                        if es_semestral:
+                            html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td><td>{r.get("venc_real", "N/A")}</td>'
+                        else:
+                            html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
                         html += f'<td>{cert_val}</td><td>{r["inf"]}</td>'
                         html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs_final", "-")}</td>'
                         html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
                         
-                        row_dict = {
-                            "INTERNO": r["id"], "PROVEEDOR": r.get("proveedor", "Worklift"), "ESTADO": st_text, "ÚLTIMA INSPECCIÓN": r["insp"], "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"]
-                        }
+                        if es_semestral:
+                            row_dict = {
+                                "INTERNO": r["id"], 
+                                "PROVEEDOR": r.get("proveedor", "Worklift"), 
+                                "ESTADO": st_text, 
+                                "ÚLTIMA INSPECCIÓN": r["insp"], 
+                                "VENCIMIENTO SEMESTRAL": r["venc"],
+                                "VENCIMIENTO REAL": r.get("venc_real", "-")
+                            }
+                        else:
+                            row_dict = {
+                                "INTERNO": r["id"], 
+                                "PROVEEDOR": r.get("proveedor", "Worklift"), 
+                                "ESTADO": st_text, 
+                                "ÚLTIMA INSPECCIÓN": r["insp"], 
+                                "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"]
+                            }
                             
                         row_dict.update({
                             "CERTIFICADO": cert_val, "INFORME": r["inf"], 
