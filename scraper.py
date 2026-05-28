@@ -4,8 +4,6 @@ import logging
 import base64
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
-from utils import analizar_fecha, calcular_vencimiento_semestral
-from pdf_utils import analizar_informe_local
 
 class WLHopperBot:
     def __init__(self, headless=True):
@@ -48,12 +46,6 @@ class WLHopperBot:
             print(f"Error en Login WL: {e}")
             return False
 
-    def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe, es_semestral=False, prefijo_cert="Certificado"):
-        # ... (Tu lógica de procesar_interno de WLHopperBot permanece intacta como la tenías) ...
-        # (He omitido el bloque interno aquí para no duplicar tu código base funcional, 
-        # pero es el mismo que tenías en el archivo original)
-        pass 
-
     def cerrar(self):
         if self.browser: self.browser.close()
         if self.pw: self.pw.stop()
@@ -93,16 +85,14 @@ class BureauVeritasBot:
             self.page.fill('input[name="txtUsuario"]', usuario)
             self.page.fill('input[name="txtPassword"]', clave)
             self.page.click('input[name="btnAcceso"]')
-
-            self.page.click('a.ctl00_menua_1[href="Busquedas.aspx"]')
-            self.page.click('a#ctl00_ContentPlaceHolder1_lkBuscaEQ')
             return True, ""
         except Exception as e:
             print(f"Error BV Login: {e}")
             return False, str(e)
 
     def procesar_interno(self, interno, ruta_base, bajar_cert=True, bajar_inf=False, prefijo_cert=""):
-        res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False, "insp": "-", "venc": "-", "observaciones": "", "informe": "NO"}
+        # Retorno de seguridad por si algo falla antes del try
+        res = {"status": "Error", "cert": "NO", "descargado": False, "insp": "-", "venc": "-", "observaciones": "Fallo ejecución", "informe": "NO", "archivos_descargados": []}
         try:
             if "BuscaEQ.aspx" not in self.page.url:
                 self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx")
@@ -111,7 +101,8 @@ class BureauVeritasBot:
             self.page.fill('input#ctl00_ContentPlaceHolder1_txtNroBuscado', interno)
             self.page.click('input#ctl00_ContentPlaceHolder1_btnBusca')
 
-            self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=10000)
+            # Espera aumentada a 20s para prevenir timeouts en carga lenta
+            self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=20000)
             fila = self.page.locator(f"tr:has-text('{interno}')").last
             
             if fila.count() > 0:
@@ -123,7 +114,6 @@ class BureauVeritasBot:
                 prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
                 archivos_bv = []
                 
-                # Descarga robusta certificado
                 boton_pdf = fila.locator('input[id*="ImgbtnCertificado"]')
                 if bajar_cert and boton_pdf.count() > 0:
                     with self.page.expect_download(timeout=25000) as download_info:
@@ -136,7 +126,6 @@ class BureauVeritasBot:
                     self.page.click('input#ctl00_ContentPlaceHolder1_btnBusca')
                     fila = self.page.locator(f"tr:has-text('{interno}')").last
                     
-                # Descarga robusta informe
                 boton_informe = fila.locator('input[id*="BtnInforme"]')
                 if boton_informe.count() > 0:
                     res["informe"] = "SI"
@@ -152,9 +141,9 @@ class BureauVeritasBot:
                             archivos_bv.append(os.path.join(ruta_base, f"{prefijo}{interno}_Informe_Vence_{venc_format}.pdf"))
                     self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx")
                 res["status"] = "VIGENTE (BV)" if res["descargado"] else "Encontrado en BV"
-            res["archivos_descargados"] = archivos_bv
+                res["archivos_descargados"] = archivos_bv
         except Exception as e:
-            print(f"Error procesando {interno} en BV: {e}")
+            res["observaciones"] = f"Error: {str(e)[:30]}"
         return res
 
     def cerrar(self):
