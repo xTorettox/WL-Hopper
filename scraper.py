@@ -394,7 +394,7 @@ class BureauVeritasBot:
                 self.pw = sync_playwright().start()
                 self.pw_started_here = True
             
-            # Lógica de detección de navegador
+            # --- LÓGICA DE DETECCIÓN DE NAVEGADOR PARA CLOUD ---
             rutas_posibles = [
                 "/usr/bin/chromium",
                 "/usr/bin/chromium-browser",
@@ -427,22 +427,13 @@ class BureauVeritasBot:
             )
             self.page = self.context.new_page()
             
-            # Login
             self.page.goto("https://iip.bureauveritas.com.ar/Login.aspx", wait_until="load", timeout=60000)
             self.page.fill('input[name="txtUsuario"]', usuario)
             self.page.fill('input[name="txtPassword"]', clave)
             self.page.click('input[name="btnAcceso"]')
 
-            # Navegación a Búsquedas
-            self.page.goto("https://iip.bureauveritas.com.ar/Busquedas.aspx", wait_until="load")
-            
-            # Click al link específico de Equipos/Elementos
-            self.page.wait_for_selector('a#ctl00_ContentPlaceHolder1_lkBuscaEQ')
+            self.page.click('a.ctl00_menua_1[href="Busquedas.aspx"]')
             self.page.click('a#ctl00_ContentPlaceHolder1_lkBuscaEQ')
-            
-            # Confirmación de carga
-            self.page.wait_for_selector('input#ctl00_ContentPlaceHolder1_txtNroBuscado', timeout=15000)
-            
             return True, ""
         except Exception as e:
             print(f"Error BV Login: {e}")
