@@ -144,3 +144,6 @@ def calcular_vencimiento_semestral(fecha_insp_str):
         return "-", "-"
 
 def asegurar_carpeta(ruta):
+    """ Crea la carpeta temporal de descargas si no existe """
+    if not os.path.exists(ruta):
+        os.makedirs(ruta)
