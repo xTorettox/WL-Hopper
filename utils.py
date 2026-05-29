@@ -7,17 +7,46 @@ import io
 def extraer_texto_de_archivo(archivo):
     """
     Extrae texto de un archivo BytesIO o similar para alimentar el extractor de internos.
-    Soporta TXT, CSV, y XLSX.
+    Soporta TXT, CSV, XLSX y PDF (con OCR de fallback para PDFs escaneados).
     """
     try:
-        if archivo.name.endswith('.txt'):
+        name_lower = archivo.name.lower()
+        if name_lower.endswith('.txt'):
             return archivo.getvalue().decode('utf-8')
-        elif archivo.name.endswith('.csv'):
+        elif name_lower.endswith('.csv'):
             df = pd.read_csv(archivo)
             return df.to_string()
-        elif archivo.name.endswith('.xlsx'):
+        elif name_lower.endswith('.xlsx'):
             df = pd.read_excel(archivo)
             return df.to_string()
+        elif name_lower.endswith('.pdf'):
+            import fitz
+            # Posicionamos al inicio de los bytes
+            pos_inicial = archivo.tell()
+            archivo.seek(0)
+            pdf_bytes = archivo.read()
+            archivo.seek(pos_inicial)
+            
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            texto = ""
+            for pagina in doc:
+                texto += pagina.get_text()
+                
+            # Si el PDF no contenía texto legible nativo (ej: escaneado), aplicamos OCR a las páginas
+            if not texto.strip():
+                print("[INFO] PDF no contiene texto nativo. Aplicando OCR...")
+                import pytesseract
+                from PIL import Image
+                for i in range(len(doc)):
+                    pagina = doc.load_page(i)
+                    pix = pagina.get_pixmap(dpi=150)
+                    img_data = pix.tobytes("png")
+                    img = Image.open(io.BytesIO(img_data)).convert('L')
+                    # Preprocesamiento de la imagen para mejorar la precisión del OCR
+                    w, h = img.size
+                    img = img.resize((w*2, h*2), Image.Resampling.LANCZOS)
+                    texto += pytesseract.image_to_string(img, config='--psm 11')
+            return texto
     except Exception as e:
         print(f"Error procesando archivo: {e}")
     return ""
