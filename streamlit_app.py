@@ -640,6 +640,11 @@ if check_password():
                                 bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
                                 bv_bot.cerrar()
                                 
+                                # Mostrar los logs detallados de Bureau Veritas en la terminal Streamlit
+                                for log_line in bv_res.get('log', []):
+                                    st.session_state.log_history.append(f"🤖 [BV] {log_line}")
+                                render_terminal()
+                                
                                 # Si BV encontró algo útil, comparamos con WL
                                 if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
                                     
