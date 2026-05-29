@@ -747,7 +747,7 @@ if check_password():
                                     if gana_bv_cert or gana_bv_inf:
                                         res['proveedor'] = "Bureau Veritas"
                                         res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
-                                        res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('informe', 'NO')
+                                        res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('inf', 'NO')
                                         
                                         if gana_bv_inf:
                                             res['insp'] = bv_res.get('insp', res.get('insp'))
