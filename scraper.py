@@ -500,92 +500,109 @@ class BureauVeritasBot:
                 prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
                 archivos_bv = []
                 
-                # Botón de certificado
-                boton_pdf = fila.locator('input[id*="ImgbtnCertificado"]')
-                
-                if bajar_cert and boton_pdf.count() > 0:
-                    log_pasos.append("📜 Botón de Certificado PDF disponible. Descargando...")
-                    try:
-                        # Atrapamos el evento de respuesta de red para conocer la URL exacta y sus parámetros
-                        with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=20000) as response_info:
-                            boton_pdf.click()
-                        
-                        response = response_info.value
-                        pdf_url = response.url
-                        
-                        # Recuperamos las cookies del contexto del navegador activo
-                        cookies = {c['name']: c['value'] for c in self.context.cookies()}
-                        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                        
-                        # Descargamos directamente el archivo binario utilizando requests con la misma sesión
-                        r = requests.get(pdf_url, cookies=cookies, headers=headers, timeout=25)
-                        if r.status_code == 200:
-                            file_path = os.path.join(ruta_base, f"{prefijo}{interno}_Certificado_Vence_{venc_format}.pdf")
-                            with open(file_path, "wb") as f:
-                                f.write(r.content)
-                            
-                            archivos_bv.append(file_path)
-                            res["cert"] = "SI"
-                            res["descargado"] = True
-                            log_pasos.append(f"💾 Certificado PDF descargado con éxito y guardado en: {file_path}")
-                        else:
-                            log_pasos.append(f"❌ Error al descargar el PDF de red (HTTP {r.status_code})")
-                    except Exception as e_pdf:
-                        log_pasos.append(f"❌ Error al capturar certificado PDF: {e_pdf}")
-                    
-                # Re-localizar la fila para evitar DOM desasociado (detached) por postback
-                self.page.wait_for_timeout(1000)
-                try:
-                    rows = self.page.locator("table#ctl00_ContentPlaceHolder1_gvInformes tr")
-                    row_count = rows.count()
-                    candidatas = []
-                    for i in range(row_count):
-                        r = rows.nth(i)
-                        if r.locator("td").count() > 0:
-                            candidatas.append(r)
-                    matching_candidatas = []
-                    for r in candidatas:
-                        text = r.inner_text().upper()
-                        if interno.upper() in text:
-                            matching_candidatas.append(r)
-                    if matching_candidatas:
-                        fila = matching_candidatas[-1]
-                    elif candidatas:
-                        fila = candidatas[-1]
-                except Exception as e_reloc:
-                    log_pasos.append(f"⚠️ Nota al re-localizar fila: {e_reloc}")
-                    
-                # Ingreso al detalle del informe
+                # --- PASO 1: DETALLE DEL INFORME (PRIMERO) ---
                 boton_informe = fila.locator('input[id*="BtnInforme" i], input[name*="BtnInforme" i], input[type="submit"]') if fila else None
                 if boton_informe and boton_informe.count() > 0:
                     res["informe"] = "SI"
                     log_pasos.append("📂 Accediendo a los detalles del informe...")
-                    boton_informe.first.click()
-                    self.page.wait_for_selector('textarea#ctl00_ContentPlaceHolder1_txtConclusion', timeout=10000)
-                    
-                    obs_text = self.page.locator('textarea#ctl00_ContentPlaceHolder1_txtConclusion').input_value()
-                    res["observaciones"] = obs_text.strip()
-                    log_pasos.append(f"💬 Conclusión del informe en BV: '{res['observaciones']}'")
-                    
-                    if bajar_inf:
-                        img_pdf = self.page.locator('input#ctl00_ContentPlaceHolder1_imgGeneraPDF')
-                        if img_pdf.count() > 0:
-                            log_pasos.append("📄 Iniciando descarga del archivo del informe PDF...")
-                            try:
-                                with self.page.expect_download(timeout=15000) as download_info:
-                                    img_pdf.click()
+                    try:
+                        boton_informe.first.click()
+                        self.page.wait_for_selector('textarea#ctl00_ContentPlaceHolder1_txtConclusion', timeout=10000)
+                        
+                        obs_text = self.page.locator('textarea#ctl00_ContentPlaceHolder1_txtConclusion').input_value()
+                        res["observaciones"] = obs_text.strip()
+                        log_pasos.append(f"💬 Conclusión del informe en BV: '{res['observaciones']}'")
+                        
+                        if bajar_inf:
+                            img_pdf = self.page.locator('input#ctl00_ContentPlaceHolder1_imgGeneraPDF')
+                            if img_pdf.count() > 0:
+                                log_pasos.append("📄 Iniciando descarga del archivo del informe PDF...")
+                                try:
+                                    with self.page.expect_download(timeout=15000) as download_info:
+                                        img_pdf.click()
+                                    
+                                    download = download_info.value
+                                    file_path_inf = os.path.join(ruta_base, f"{prefijo}{interno}_Informe_Vence_{venc_format}.pdf")
+                                    download.save_as(file_path_inf)
+                                    
+                                    archivos_bv.append(file_path_inf)
+                                    res["informe"] = "SI"
+                                    log_pasos.append(f"💾 Informe PDF guardado en: {file_path_inf}")
+                                except Exception as e_inf:
+                                    log_pasos.append(f"❌ Error descargando PDF del informe: {e_inf}")
+                            else:
+                                log_pasos.append("⚠️ El botón de generación de PDF de informe no está presente.")
+                    except Exception as e_detail:
+                        log_pasos.append(f"❌ Error accediendo al detalle del informe: {e_detail}")
+                        
+                # --- PASO 2: DESCARGAR EL CERTIFICADO ---
+                if bajar_cert:
+                    # Volvemos a buscar el interno para recargar la grilla limpia y descargar el certificado
+                    log_pasos.append("🔄 Volviendo a buscar el equipo para descargar el certificado...")
+                    try:
+                        self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx")
+                        self.page.check('input#ctl00_ContentPlaceHolder1_RBOpciones_1')
+                        self.page.fill('input#ctl00_ContentPlaceHolder1_txtNroBuscado', interno)
+                        self.page.click('input#ctl00_ContentPlaceHolder1_btnBusca')
+                        self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=12000)
+                        
+                        # Re-localizar la fila
+                        rows_rec = self.page.locator("table#ctl00_ContentPlaceHolder1_gvInformes tr")
+                        candidatas_rec = []
+                        for i in range(rows_rec.count()):
+                            r_rec = rows_rec.nth(i)
+                            if r_rec.locator("td").count() > 0:
+                                candidatas_rec.append(r_rec)
                                 
-                                download = download_info.value
-                                file_path_inf = os.path.join(ruta_base, f"{prefijo}{interno}_Informe_Vence_{venc_format}.pdf")
-                                download.save_as(file_path_inf)
+                        matching_candidatas_rec = []
+                        for r_rec in candidatas_rec:
+                            text_rec = r_rec.inner_text().upper()
+                            if interno.upper() in text_rec:
+                                matching_candidatas_rec.append(r_rec)
                                 
-                                archivos_bv.append(file_path_inf)
-                                res["informe"] = "SI"
-                                log_pasos.append(f"💾 Informe PDF guardado en: {file_path_inf}")
-                            except Exception as e_inf:
-                                log_pasos.append(f"❌ Error descargando PDF del informe: {e_inf}")
+                        fila_rec = None
+                        if matching_candidatas_rec:
+                            fila_rec = matching_candidatas_rec[-1]
+                        elif candidatas_rec:
+                            fila_rec = candidatas_rec[-1]
+                            
+                        if fila_rec:
+                            boton_pdf = fila_rec.locator('input[id*="ImgbtnCertificado"]')
+                            if boton_pdf.count() > 0:
+                                log_pasos.append("📜 Botón de Certificado PDF disponible. Descargando...")
+                                try:
+                                    # Atrapamos el evento de respuesta de red para conocer la URL exacta y sus parámetros
+                                    with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=20000) as response_info:
+                                        boton_pdf.click()
+                                    
+                                    response = response_info.value
+                                    pdf_url = response.url
+                                    
+                                    # Recuperamos las cookies del contexto del navegador activo
+                                    cookies = {c['name']: c['value'] for c in self.context.cookies()}
+                                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                                    
+                                    # Descargamos directamente el archivo binario utilizando requests con la misma sesión
+                                    r = requests.get(pdf_url, cookies=cookies, headers=headers, timeout=25)
+                                    if r.status_code == 200:
+                                        file_path = os.path.join(ruta_base, f"{prefijo}{interno}_Certificado_Vence_{venc_format}.pdf")
+                                        with open(file_path, "wb") as f:
+                                            f.write(r.content)
+                                        
+                                        archivos_bv.append(file_path)
+                                        res["cert"] = "SI"
+                                        res["descargado"] = True
+                                        log_pasos.append(f"💾 Certificado PDF descargado con éxito y guardado en: {file_path}")
+                                    else:
+                                        log_pasos.append(f"❌ Error al descargar el PDF de red (HTTP {r.status_code})")
+                                except Exception as e_pdf:
+                                    log_pasos.append(f"❌ Error al capturar certificado PDF: {e_pdf}")
+                            else:
+                                log_pasos.append("⚠️ El certificado no está disponible para este equipo.")
                         else:
-                            log_pasos.append("⚠️ El botón de generación de PDF de informe no está presente.")
+                            log_pasos.append("❌ No se pudo re-localizar la fila para descargar el certificado.")
+                    except Exception as e_rec:
+                        log_pasos.append(f"❌ Error al re-buscar para descargar certificado: {e_rec}")
                             
                 res["status"] = "VIGENTE (BV)" if res["descargado"] else "Encontrado en BV"
             else:
