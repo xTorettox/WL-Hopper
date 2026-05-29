@@ -533,12 +533,34 @@ class BureauVeritasBot:
                     except Exception as e_pdf:
                         log_pasos.append(f"❌ Error al capturar certificado PDF: {e_pdf}")
                     
+                # Re-localizar la fila para evitar DOM desasociado (detached) por postback
+                self.page.wait_for_timeout(1000)
+                try:
+                    rows = self.page.locator("table#ctl00_ContentPlaceHolder1_gvInformes tr")
+                    row_count = rows.count()
+                    candidatas = []
+                    for i in range(row_count):
+                        r = rows.nth(i)
+                        if r.locator("td").count() > 0:
+                            candidatas.append(r)
+                    matching_candidatas = []
+                    for r in candidatas:
+                        text = r.inner_text().upper()
+                        if interno.upper() in text:
+                            matching_candidatas.append(r)
+                    if matching_candidatas:
+                        fila = matching_candidatas[-1]
+                    elif candidatas:
+                        fila = candidatas[-1]
+                except Exception as e_reloc:
+                    log_pasos.append(f"⚠️ Nota al re-localizar fila: {e_reloc}")
+                    
                 # Ingreso al detalle del informe
-                boton_informe = fila.locator('input[id*="BtnInforme"]') if fila else None
+                boton_informe = fila.locator('input[id*="BtnInforme" i], input[name*="BtnInforme" i], input[type="submit"]') if fila else None
                 if boton_informe and boton_informe.count() > 0:
                     res["informe"] = "SI"
                     log_pasos.append("📂 Accediendo a los detalles del informe...")
-                    boton_informe.click()
+                    boton_informe.first.click()
                     self.page.wait_for_selector('textarea#ctl00_ContentPlaceHolder1_txtConclusion', timeout=10000)
                     
                     obs_text = self.page.locator('textarea#ctl00_ContentPlaceHolder1_txtConclusion').input_value()
