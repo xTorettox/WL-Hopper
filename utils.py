@@ -53,12 +53,12 @@ def extraer_texto_de_archivo(archivo):
 
 def extraer_internos(texto_sucio):
     """
-    Lógica Híbrida: Busca internos nuevos ([EA] + 6 dígitos) y 
-    chequea potenciales internos viejos contra la lista en O(1), preservando el orden original.
+    Lógica Híbrida Ultra-Robusta: Busca internos nuevos ([EA] + 6 dígitos)
+    y potenciales internos viejos en el texto, incluso si están concatenados,
+    pegados por guiones (E061633-A040230) o sin espacios, preservando el orden original.
     """
     texto_upper = texto_sucio.upper()
     
-    # Carga de internos_viejos.txt en un set para búsqueda ultra rápida
     base_viejos = set()
     ruta_viejos = "internos_viejos.txt"
     if os.path.exists(ruta_viejos):
@@ -68,25 +68,28 @@ def extraer_internos(texto_sucio):
         except Exception as e:
             print(f"Error al leer internos_viejos.txt: {e}")
 
+    matches = []
+    
+    # 1. Encontrar todos los internos nuevos [EA]\d{6} en cualquier posición
+    for m in re.finditer(r'[EA]\d{6}', texto_upper):
+        matches.append((m.start(), m.group()))
+        
+    # 2. Encontrar todos los internos viejos respetando límites de palabra para evitar matches parciales
+    for viejo in base_viejos:
+        patron_viejo = r'\b' + re.escape(viejo) + r'\b'
+        for m in re.finditer(patron_viejo, texto_upper):
+            matches.append((m.start(), m.group()))
+            
+    # Ordenar por el índice donde aparecieron en el texto
+    matches.sort(key=lambda x: x[0])
+    
+    # Eliminar duplicados manteniendo el orden
     resultado = []
     vistos = set()
-    
-    # Expresión regular que captura todos los bloques alfanuméricos
-    patron_general = r'[A-Z0-9]+'
-    candidatos = re.findall(patron_general, texto_upper)
-    
-    for c in candidatos:
-        if c in vistos:
-            continue
-            
-        # Es un interno nuevo válido? (E o A seguido de 6 números)
-        if re.match(r'^[EA]\d{6}$', c):
-            resultado.append(c)
-            vistos.add(c)
-        # Es un interno viejo válido?
-        elif c in base_viejos:
-            resultado.append(c)
-            vistos.add(c)
+    for _, val in matches:
+        if val not in vistos:
+            resultado.append(val)
+            vistos.add(val)
             
     return resultado
 
@@ -141,6 +144,3 @@ def calcular_vencimiento_semestral(fecha_insp_str):
         return "-", "-"
 
 def asegurar_carpeta(ruta):
-    """ Crea la carpeta temporal de descargas si no existe """
-    if not os.path.exists(ruta):
-        os.makedirs(ruta)
