@@ -351,6 +351,8 @@ if check_password():
     if "res_lista" not in st.session_state: st.session_state.res_lista = []
     if "texto_area" not in st.session_state: st.session_state.texto_area = ""
     if "ultimo_archivo_procesado" not in st.session_state: st.session_state.ultimo_archivo_procesado = None
+    if "ejecutando" not in st.session_state: st.session_state.ejecutando = False
+    is_exec = st.session_state.ejecutando
 
     
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
@@ -364,7 +366,7 @@ if check_password():
     st.markdown('</div>', unsafe_allow_html=True)
     
 # --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
-    with st.expander("🔐 Credenciales"):
+    with st.expander("🔐 Credenciales", expanded=not is_exec):
         st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifrada. Las claves que almacenes van a quedar sujetas a este perfil.")
         
         wl_creds_dict = st.session_state.get("wl_creds_dict", {})
@@ -388,16 +390,16 @@ if check_password():
             with col_sel_wl:
                 wl_opciones = list(wl_creds_dict.keys())
                 if wl_opciones:
-                    sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real")
+                    sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real", disabled=is_exec)
                 else:
-                    sel_empty_wl = st.selectbox("Perfil WL", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_wl_empty")
+                    sel_empty_wl = st.selectbox("Perfil WL", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_wl_empty", disabled=is_exec)
                     sel_wl = "➕ Nueva Credencial..." if sel_empty_wl == "➕ Nueva Credencial..." else ""
             
             is_new_wl = (sel_wl == "➕ Nueva Credencial...") or (not wl_opciones and sel_wl == "")
-            wl_u = st.text_input("Usuario WL", value="" if is_new_wl else sel_wl, key="inp_wl_u", disabled=not is_new_wl)
-            wl_p = st.text_input("Contraseña WL", value="" if is_new_wl else wl_creds_dict.get(sel_wl, ""), type="password", key="inp_wl_p")
+            wl_u = st.text_input("Usuario WL", value="" if is_new_wl else sel_wl, key="inp_wl_u", disabled=is_exec or not is_new_wl)
+            wl_p = st.text_input("Contraseña WL", value="" if is_new_wl else wl_creds_dict.get(sel_wl, ""), type="password", key="inp_wl_p", disabled=is_exec)
             
-            if st.button("💾 Guardar WL", use_container_width=True):
+            if st.button("💾 Guardar WL", use_container_width=True, disabled=is_exec):
                 if not wl_u or not wl_p:
                     st.error("Debes ingresar un usuario y contraseña.")
                 elif supabase:
@@ -427,16 +429,16 @@ if check_password():
             with col_sel_bv:
                 bv_opciones = list(bv_creds_dict.keys())
                 if bv_opciones:
-                    sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real")
+                    sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real", disabled=is_exec)
                 else:
-                    sel_empty_bv = st.selectbox("Perfil BV", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_bv_empty")
+                    sel_empty_bv = st.selectbox("Perfil BV", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_bv_empty", disabled=is_exec)
                     sel_bv = "➕ Nueva Credencial..." if sel_empty_bv == "➕ Nueva Credencial..." else ""
             
             is_new_bv = (sel_bv == "➕ Nueva Credencial...") or (not bv_opciones and sel_bv == "")
-            bv_u = st.text_input("Usuario BV", value="" if is_new_bv else sel_bv, key="inp_bv_u", disabled=not is_new_bv)
-            bv_p = st.text_input("Contraseña BV", value="" if is_new_bv else bv_creds_dict.get(sel_bv, ""), type="password", key="inp_bv_p")
+            bv_u = st.text_input("Usuario BV", value="" if is_new_bv else sel_bv, key="inp_bv_u", disabled=is_exec or not is_new_bv)
+            bv_p = st.text_input("Contraseña BV", value="" if is_new_bv else bv_creds_dict.get(sel_bv, ""), type="password", key="inp_bv_p", disabled=is_exec)
             
-            if st.button("💾 Guardar BV", use_container_width=True):
+            if st.button("💾 Guardar BV", use_container_width=True, disabled=is_exec):
                 if not bv_u or not bv_p:
                     st.error("Debes ingresar un usuario y contraseña.")
                 elif supabase:
@@ -464,44 +466,45 @@ if check_password():
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
-            bajar_cert = c1.checkbox("Descargar Certificados", value=True)
-            bajar_inf = c2.checkbox("Descargar Informes", value=False)
-            es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.")
+            bajar_cert = c1.checkbox("Descargar Certificados", value=True, disabled=is_exec)
+            bajar_inf = c2.checkbox("Descargar Informes", value=False, disabled=is_exec)
+            es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.", disabled=is_exec)
             modo_pruebas = False
             if st.session_state.get("logged_user") == "fcendra":
-                modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True)
+                modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True, disabled=is_exec)
                 
-        with st.expander("⚙️ Configuración de Salida"):
-            nombre_excel = st.text_input("Nombre del Excel", value="Reporte_Hopper")
-            nombre_zip = st.text_input("Nombre del Archivo ZIP", value="Certificados")
+        with st.expander("⚙️ Configuración de Salida", expanded=not is_exec):
+            nombre_excel = st.text_input("Nombre del Excel", value="Reporte_Hopper", disabled=is_exec)
+            nombre_zip = st.text_input("Nombre del Archivo ZIP", value="Certificados", disabled=is_exec)
             prefijo_cert = "" # Forzamos vacío para no pisar el nombre original de los PDFs
     
         st.markdown("##### Listado de Internos")
-        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg'], help="También podés arrastrar el archivo.")
+        archivo_subido = st.file_uploader("Subí tu Excel, TXT, CSV, PDF o Foto", type=['txt', 'csv', 'xlsx', 'png', 'jpg', 'jpeg', 'pdf'], help="También podés arrastrar el archivo.", disabled=is_exec)
         
         # --- LÓGICA DE COMPONENTE PORTAPAPELES (LIBRERÍA EXTERNA) ---
-        try:
-            from streamlit_paste_button import paste_image_button
-            paste_result = paste_image_button(
-                label="📋 Pegar Imagen del Portapapeles",
-                background_color="#008657",
-                hover_background_color="#006644",
-                key=f"paste_btn_{st.session_state.get('paste_key', 0)}"
-            )
-            if paste_result and paste_result.image_data is not None:
-                if not archivo_subido:
-                    import io
-                    buf = io.BytesIO()
-                    paste_result.image_data.save(buf, format="PNG")
-                    buf.name = "pasted_image.png"
-                    buf.type = "image/png"
-                    buf.size = len(buf.getvalue())
-                    archivo_subido = buf
-                    st.success("✅ Imagen pegada cargada correctamente.")
-        except ImportError:
-            pass
+        if not is_exec:
+            try:
+                from streamlit_paste_button import paste_image_button
+                paste_result = paste_image_button(
+                    label="📋 Pegar Imagen del Portapapeles",
+                    background_color="#008657",
+                    hover_background_color="#006644",
+                    key=f"paste_btn_{st.session_state.get('paste_key', 0)}"
+                )
+                if paste_result and paste_result.image_data is not None:
+                    if not archivo_subido:
+                        import io
+                        buf = io.BytesIO()
+                        paste_result.image_data.save(buf, format="PNG")
+                        buf.name = "pasted_image.png"
+                        buf.type = "image/png"
+                        buf.size = len(buf.getvalue())
+                        archivo_subido = buf
+                        st.success("✅ Imagen pegada cargada correctamente.")
+            except ImportError:
+                pass
 
-        if archivo_subido and archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
+        if archivo_subido and archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg', '.pdf')):
             st.info("⚠️ **Función Experimental:** La extracción de texto desde imagen (OCR) puede requerir revisión manual.")
             
         # LÓGICA DE EXTRACCIÓN AUTOMÁTICA
@@ -512,6 +515,16 @@ if check_password():
                     texto_extraido = ""
                     if archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
                         try:
+                            # Cargar internos viejos para guiado de corrección
+                            base_viejos = set()
+                            ruta_viejos = "internos_viejos.txt"
+                            if os.path.exists(ruta_viejos):
+                                try:
+                                    with open(ruta_viejos, "r", encoding="utf-8") as f:
+                                        base_viejos = {line.strip().upper() for line in f if line.strip()}
+                                except Exception as e:
+                                    print(f"Error al leer internos_viejos.txt: {e}")
+
                             image = Image.open(archivo_subido).convert('L')
                             w, h = image.size
                             image = image.resize((w*2, h*2), Image.Resampling.LANCZOS)
@@ -524,13 +537,37 @@ if check_password():
                             for p in palabras:
                                 for char in ['£', '€', 'È', 'É']: p = p.replace(char, 'E')
                                 p = re.sub(r'[^A-Z0-9]', '', p)
-                                if p and p.startswith('3'): p = 'E' + p[1:]
-                                elif p and p[0] in ['4', '^', '@']: p = 'A' + p[1:]
+                                if not p: continue
+                                
+                                # Si empieza con 3 y parece un interno nuevo, corregir a E
+                                if p.startswith('3') and len(p) == 7:
+                                    p = 'E' + p[1:]
+                                # Si empieza con 4, ^, o @ y parece interno nuevo, corregir a A
+                                elif p.startswith('3') and p[1:] in base_viejos:
+                                    pass
+                                elif p[0] in ['4', '^', '@'] and len(p) == 7:
+                                    p = 'A' + p[1:]
+                                    
                                 if p.startswith('E') or p.startswith('A'):
-                                    p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5')
+                                    p_resto = p[1:].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5').replace('Z', '2').replace('G', '6')
                                     texto_corregido.append(p[0] + p_resto)
                                 else:
-                                    texto_corregido.append(p)
+                                    # Para internos viejos:
+                                    # Intentamos corrección puramente numérica
+                                    p_corr_num = p.replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5').replace('Z', '2').replace('G', '6')
+                                    if p_corr_num in base_viejos:
+                                        texto_corregido.append(p_corr_num)
+                                    # Si tiene letra final (B, C, D)
+                                    elif len(p) > 1 and p[-1] in ['B', 'C', 'D']:
+                                        p_cuerpo = p[:-1].replace('O', '0').replace('I', '1').replace('L', '1').replace('S', '5').replace('Z', '2').replace('G', '6')
+                                        p_corr_letra = p_cuerpo + p[-1]
+                                        if p_corr_letra in base_viejos:
+                                            texto_corregido.append(p_corr_letra)
+                                        else:
+                                            texto_corregido.append(p_corr_num)
+                                    else:
+                                        texto_corregido.append(p_corr_num)
+                                        
                             texto_extraido = " ".join(texto_corregido)
                         except Exception as e:
                             st.error(f"Error OCR: {e}")
@@ -551,8 +588,8 @@ if check_password():
                 st.session_state.ultimo_archivo_procesado = archivo_id
                 st.rerun()
             
-        texto_internos = st.text_area("Revisá o pegá los internos acá:", height=115, placeholder="E040230, 3797...", key="texto_area")
-        btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True)
+        texto_internos = st.text_area("Revisá o pegá los internos acá:", height=115, placeholder="E040230, 3797...", key="texto_area", disabled=is_exec)
+        btn_run = st.button("🚀 COMENZAR PROCESO", use_container_width=True, disabled=is_exec)
 
     
     with col_right:
@@ -576,8 +613,36 @@ if check_password():
         wl_usr = st.session_state.get("wl_user", "")
         wl_pass = st.session_state.get("wl_pw", "")
         
-        if not wl_usr or not wl_pass: st.error("Faltan credenciales de Worklift. Selecciona o guarda una.")
+        if not wl_usr or not wl_pass:
+            st.error("Faltan credenciales de Worklift. Selecciona o guarda una.")
         else:
+            # Almacenamos parámetros y disparamos ejecución diferida
+            st.session_state.bajar_cert_val = bajar_cert
+            st.session_state.bajar_inf_val = bajar_inf
+            st.session_state.es_semestral_val = es_semestral
+            st.session_state.nombre_excel_val = nombre_excel
+            st.session_state.nombre_zip_val = nombre_zip
+            st.session_state.texto_internos_val = texto_internos
+            st.session_state.ejecutando = True
+            st.rerun()
+
+    # --- FLUJO DE EJECUCIÓN DIFERIDO (BLOQUEO DE CONTROLES) ---
+    if st.session_state.ejecutando:
+        # Cargar parámetros almacenados
+        bajar_cert = st.session_state.get("bajar_cert_val", True)
+        bajar_inf = st.session_state.get("bajar_inf_val", False)
+        es_semestral = st.session_state.get("es_semestral_val", False)
+        nombre_excel = st.session_state.get("nombre_excel_val", "Reporte_Hopper")
+        nombre_zip = st.session_state.get("nombre_zip_val", "Certificados")
+        texto_internos = st.session_state.get("texto_internos_val", "")
+        prefijo_cert = "" # Forzamos vacío para no pisar el nombre original de los PDFs
+        
+        wl_usr = st.session_state.get("wl_user", "")
+        wl_pass = st.session_state.get("wl_pw", "")
+        bv_usr = st.session_state.get("bv_user", "")
+        bv_pw = st.session_state.get("bv_pw", "")
+        
+        try:
             ruta_temp = "descargas_temp"
             if os.path.exists(ruta_temp): shutil.rmtree(ruta_temp)
             asegurar_carpeta(ruta_temp)
@@ -612,38 +677,38 @@ if check_password():
                 bot = WLHopperBot(headless=True)
                 if bot.iniciar(wl_usr, wl_pass):
                     st.session_state.log_history[-1] = "🔐 Login exitoso en Worklift."
+                    
+                    # Conexión inicial a Bureau Veritas si corresponde
+                    exito_bv_login = False
+                    if bv_usr and bv_pw:
+                        st.session_state.log_history.append("Iniciando conexión con BV...")
+                        render_terminal()
+                        bv_test_bot = BureauVeritasBot(headless=True)
+                        exito_bv_login, error_bv_login = bv_test_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
+                        bv_test_bot.cerrar()
+                        if exito_bv_login:
+                            st.session_state.log_history[-1] = "🔐 Login exitoso en BV."
+                        else:
+                            st.session_state.log_history[-1] = f"❌ Falló conexión con BV: {error_bv_login}"
+                    
                     render_terminal()
                     
                     res_lista = []
                     for int_id in lista:
-                        st.session_state.log_history.append(f"--- Procesando {int_id} ---")
+                        st.session_state.log_history.append(f"<br>--- Procesando {int_id} ---")
                         render_terminal()
                         res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
                         res['id'] = int_id
-                        
                         res['proveedor'] = "Worklift"
                         
                         # --- AUDITORÍA DOBLE: BUREAU VERITAS ---
-                        # Invocamos BV siempre para realizar la matriz comparativa
-                        from scraper import BureauVeritasBot
-                        bv_usr = st.session_state.get("bv_user")
-                        bv_pw = st.session_state.get("bv_pw")
-                        
-                        if bv_usr and bv_pw:
+                        if bv_usr and bv_pw and exito_bv_login:
                             bv_bot = BureauVeritasBot(headless=True)
                             exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
                             
                             if exito_bv:
-                                st.session_state.log_history.append("Realizando auditoría doble en Bureau Veritas...")
-                                render_terminal()
-                                
                                 bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
                                 bv_bot.cerrar()
-                                
-                                # Mostrar los logs detallados de Bureau Veritas en la terminal Streamlit
-                                for log_line in bv_res.get('log', []):
-                                    st.session_state.log_history.append(f"🤖 [BV] {log_line}")
-                                render_terminal()
                                 
                                 # Si BV encontró algo útil, comparamos con WL
                                 if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
@@ -672,18 +737,14 @@ if check_password():
                                     if bv_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
                                         gana_bv_cert = True
                                         
-                                    # DECISIÓN INFORME: Comparamos inspecciones (solo si nadie ganó cert, o si el ganador es BV)
-                                    # Si BV gana cert, naturalmente asume el informe porque aprueba ese cert
+                                    # DECISIÓN INFORME
                                     if gana_bv_cert:
                                         gana_bv_inf = True
                                     else:
-                                        # Si nadie ganó cert (o ganó WL pero queremos asegurar la inspección más nueva)
-                                        # Nos quedamos con el que tenga la fecha de inspección más nueva
                                         if bv_i_dt > wl_i_dt:
                                             gana_bv_inf = True
                                             
                                     if gana_bv_cert or gana_bv_inf:
-                                        st.session_state.log_history.append(f"✅ ¡Datos más recientes encontrados en Bureau Veritas!")
                                         res['proveedor'] = "Bureau Veritas"
                                         res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
                                         res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('informe', 'NO')
@@ -730,8 +791,8 @@ if check_password():
                                             res['accion_final'] = "Coordinar recertificación urgente"
                                             
                                         res['log'] = [
-                                            f"📄 Último Informe de Inspección: {res['insp']} ({'BV' if gana_bv_inf else 'WL'})",
-                                            f"📅 Fecha vencimiento certificado: {res['venc']} ({'BV' if gana_bv_cert else 'WL'})"
+                                            f"📄 Último Informe de Inspección: {res['insp']} (BV)",
+                                            f"📅 Fecha vencimiento certificado: {res['venc']} (BV)"
                                         ]
                                         if dias_restantes <= 30:
                                             res['log'].append(f"💡 Sugerencia: {res['accion_final']}")
@@ -746,7 +807,7 @@ if check_password():
                                                     try: os.remove(f_path)
                                                     except: pass
                                                     
-                                        # Eliminar archivos perdedores de BV (los que descargó pero perdió)
+                                        # Eliminar archivos perdedores de BV
                                         archivos_bv = bv_res.get("archivos_descargados", [])
                                         for f_path in archivos_bv:
                                             if os.path.exists(f_path):
@@ -757,33 +818,61 @@ if check_password():
                                                     except: pass
                                                     
                                     else:
-                                        # Ganó WL. Borramos los que bajó BV (si bajó algo)
+                                        # Ganó WL. Borramos los que bajó BV
                                         archivos_bv = bv_res.get("archivos_descargados", [])
                                         for f_path in archivos_bv:
                                             if os.path.exists(f_path):
                                                 try: os.remove(f_path)
                                                 except: pass
-                                else:
-                                    st.session_state.log_history.append(f"❌ Equipo no encontrado en Bureau Veritas.")
+                                
+                        # --- IMPRESIÓN DEL LOG REESTRUCTURADO ---
+                        st.session_state.log_history.append(f"Proveedor: {res.get('proveedor', 'Worklift')}")
+                        
+                        desc_inf = " (descargado)" if res.get('inf') == "SI" else ""
+                        st.session_state.log_history.append(f"Última Inspección: {res.get('insp')}{desc_inf}")
+                        
+                        desc_cert = " (descargado)" if res.get('cert') == "SI" else ""
+                        status_tag = f" ({res.get('status', 'VIGENTE')})"
+                        st.session_state.log_history.append(f"Último Certificado: {res.get('venc_real', res.get('venc'))}{desc_cert}{status_tag}")
+                        
+                        # Cálculo de vigencia
+                        def get_dt(d_str):
+                            if not d_str or d_str == "-": return datetime.min
+                            try: return datetime.strptime(d_str, "%d/%m/%Y")
+                            except: return datetime.min
+                        v_dt = get_dt(res.get('venc'))
+                        hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                        if v_dt != datetime.min:
+                            dias = (v_dt - hoy).days
+                            if dias >= 0:
+                                dias_str = f"{dias} días de vigencia"
                             else:
-                                st.session_state.log_history.append(f"❌ Falló inicio de sesión en Bureau Veritas. (Detalle: {error_bv})")
+                                dias_str = f"vencido hace {-dias} días"
                         else:
-                            st.session_state.log_history.append("❌ No hay credenciales configuradas para Bureau Veritas.")
+                            dias_str = "sin registro"
+                        st.session_state.log_history.append(f"Días de vigencia: {dias_str}")
+                        
+                        if res.get('accion_final') != "-":
+                            st.session_state.log_history.append(f"Comentarios: {res.get('accion_final')}")
                             
+                        # Conservar advertencias OCR y sugerencias especiales
+                        for log_line in res.get('log', []):
+                            if any(log_line.strip().startswith(x) for x in ["⚠️", "🤖", "💡"]):
+                                if log_line.strip().startswith("💡 Sugerencia:") and res.get('accion_final') != "-":
+                                    continue
+                                st.session_state.log_history.append(f"  {log_line.strip()}")
                                 
                         res_lista.append(res)
-                        for m in res.get('log', []): st.session_state.log_history.append(f"&nbsp;&nbsp;{m}")
                         
                         # Inyección de métricas (si no es prueba y no falló por completo)
                         if not modo_pruebas and res.get('status') != "No se pudo encontrar":
-                            # Calculamos éxito si descargó algo o si está vigente y verde
                             fue_exito = ("VERDE" in res.get('color', '') or "Descargado" in res.get('cert', ''))
                             registrar_metrica(int_id, "Archivo/Texto", exito=fue_exito)
                             
                         render_terminal()
         
                     bot.cerrar()
-                    st.session_state.log_history.append("🔓 Sesión cerrada correctamente.")
+                    st.session_state.log_history.append("🔓 Sesiones cerradas correctamente.")
                     st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
                     st.session_state.res_lista = res_lista
                     st.session_state.proceso_completo = True
@@ -797,7 +886,7 @@ if check_password():
                         html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO SEMESTRAL</th><th>VENCIMIENTO REAL</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
                     else:
                         html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
-
+ 
                     excel_data = []
                     for r in res_lista:
                         bg, tx, st_text = "#FFFFFF", "#000000", r['status'].upper()
@@ -852,6 +941,12 @@ if check_password():
                     st.session_state.log_history.append("❌ ERROR: Credenciales de Worklift incorrectas.")
                     render_terminal()
                     st.error("No se pudo iniciar sesión. Verificá tu usuario y contraseña de Worklift.")
+        except Exception as ex:
+            st.session_state.log_history.append(f"❌ ERROR INESPERADO: {ex}")
+            render_terminal()
+        finally:
+            st.session_state.ejecutando = False
+            st.rerun()
                 
     st.divider()
     
