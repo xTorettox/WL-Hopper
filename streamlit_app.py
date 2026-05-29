@@ -4,7 +4,7 @@ import shutil
 import pandas as pd
 import zipfile
 from io import BytesIO
-from scraper import WLHopperBot
+from scraper import WLHopperBot, BureauVeritasBot
 from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimiento_semestral, asegurar_carpeta
 import streamlit.components.v1 as components
 import pytesseract
