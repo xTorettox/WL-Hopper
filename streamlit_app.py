@@ -1183,3 +1183,211 @@ if check_password():
                 elif header_val == "DOC. EQUIPO":
                     ancho_final = 20
                 elif header_val == "OBSERVACIONES":
+                    ancho_final = 19.57
+                elif header_val == "ACCIONES":
+                    ancho_final = 27.43
+                elif header_val == "INFORME":
+                    ancho_final = 9.5
+                
+                worksheet.column_dimensions[col_letra].width = ancho_final
+                
+                # Aplicar centrado y wrap a todas las celdas
+                for cell in column_cells:
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                
+            # Colores
+            green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+            green_font = Font(color="006100", bold=True)
+            yellow_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+            yellow_font = Font(color="9C5700", bold=True)
+            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            red_font = Font(color="9C0006", bold=True)
+            
+            header_fill = PatternFill(start_color="008657", end_color="008657", fill_type="solid")
+            header_font = Font(color="FFFFFF", bold=True)
+            
+            if es_semestral:
+                worksheet.insert_rows(1)
+                worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(worksheet[2]))
+                title_cell = worksheet.cell(row=1, column=1)
+                title_cell.value = "⚠️ REPORTE DE VENCIMIENTOS SEMESTRALES (180 DÍAS)"
+                title_cell.font = Font(bold=True, size=14, color="FFFFFF")
+                title_cell.fill = header_fill
+                title_cell.alignment = Alignment(horizontal="center", vertical="center")
+                header_row = 2
+                worksheet.row_dimensions[1].height = 25
+            else:
+                header_row = 1
+            
+            for cell in worksheet[header_row]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            
+            headers = [cell.value for cell in worksheet[header_row]]
+            estado_idx = headers.index("ESTADO") + 1 if "ESTADO" in headers else -1
+                
+            for row in range(header_row + 1, worksheet.max_row + 1):
+                res_idx = row - (header_row + 1)
+                color_code = ""
+                if res_idx >= 0 and res_idx < len(st.session_state.res_lista):
+                    color_code = st.session_state.res_lista[res_idx].get('color', '').upper()
+                    
+                for idx in [estado_idx]:
+                    if idx != -1:
+                        cell = worksheet.cell(row=row, column=idx)
+                        if cell.value:
+                            val = str(cell.value).upper()
+                            
+                            # Si estamos en la columna de estado principal, usamos el color explícito si existe
+                            if idx == estado_idx and color_code:
+                                if color_code == "VERDE":
+                                    cell.fill = green_fill
+                                    cell.font = green_font
+                                elif color_code == "AMARILLO":
+                                    cell.fill = yellow_fill
+                                    cell.font = yellow_font
+                                elif color_code == "ROJO":
+                                    cell.fill = red_fill
+                                    cell.font = red_font
+                            else:
+                                # Fallback o para la columna de estado semestral
+                                if "VERDE" in val or "VIGENTE" in val or "APROBADO" in val:
+                                    cell.fill = green_fill
+                                    cell.font = green_font
+                                elif "AMARILLO" in val or "PRÓXIMO" in val or "GESTIÓN" in val or "REINSPECCIONAR" in val:
+                                    cell.fill = yellow_fill
+                                    cell.font = yellow_font
+                                elif "ROJO" in val or "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
+                                    cell.fill = red_fill
+                                    cell.font = red_font
+
+
+    excel_data = excel_buffer.getvalue()
+
+    dcol1, dcol2, dcol3 = st.columns(3)
+    
+    with dcol1:
+        if st.session_state.proceso_completo:
+            components.html(f"""
+                <div id="desktopBtnContainer" style="display: none; margin:0; padding:0; height: 45px; align-items: center;">
+                    <button id="cBtn" style="width: 100%; height: 45px; background-color: {VERDE_SULLAIR}; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
+                        📋 Copiar Tabla Excel
+                    </button>
+                    <textarea id="hiddenTable" style="position:fixed; top:-1000px; opacity:0;">{st.session_state.html_excel}</textarea>
+                </div>
+                
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+                <div id="mobileBtnContainer" style="display: none; margin:0; padding:0; height: 45px; align-items: center;">
+                    <button id="shareBtn" style="width: 100%; height: 45px; background-color: #25D366; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
+                        📱 Compartir Tabla como Imagen
+                    </button>
+                    <div id="captureArea" style="position: absolute; left: -9999px; background: white; padding: 10px;">
+                        {st.session_state.html_excel}
+                    </div>
+                </div>
+
+                <script>
+                // Detección de dispositivo
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                if (isMobile) {{
+                    document.getElementById('mobileBtnContainer').style.display = 'flex';
+                }} else {{
+                    document.getElementById('desktopBtnContainer').style.display = 'flex';
+                }}
+
+                // Lógica de copiar (Desktop)
+                document.getElementById('cBtn').onclick = function() {{
+                    const btn = this;
+                    const html = document.getElementById('hiddenTable').value;
+                    const blob = new Blob([html], {{ type: 'text/html' }});
+                    const data = [new ClipboardItem({{ 'text/html': blob }})];
+                    navigator.clipboard.write(data).then(() => {{
+                        btn.innerHTML = "✅ ¡COPIADO! (pegar con ctrl+v en Excel)";
+                        btn.style.backgroundColor = "#28a745";
+                        setTimeout(() => {{ btn.innerHTML = "📋 Copiar Tabla Excel"; btn.style.backgroundColor = "{VERDE_SULLAIR}"; }}, 2000);
+                    }});
+                }};
+
+                // Lógica de compartir imagen (Móvil)
+                document.getElementById('shareBtn').onclick = function() {{
+                    const btn = this;
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = "⏳ Generando...";
+                    
+                    html2canvas(document.getElementById('captureArea')).then(canvas => {{
+                        canvas.toBlob(blob => {{
+                            const file = new File([blob], "reporte.png", {{ type: "image/png" }});
+                            if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
+                                navigator.share({{
+                                    files: [file],
+                                    title: 'Reporte WL Hopper',
+                                    text: 'Reporte de Certificados'
+                                }}).then(() => {{
+                                    btn.innerHTML = "✅ Compartido";
+                                    setTimeout(() => btn.innerHTML = originalText, 2000);
+                                }}).catch(err => {{
+                                    btn.innerHTML = "❌ Error al compartir";
+                                    setTimeout(() => btn.innerHTML = originalText, 2000);
+                                }});
+                            }} else {{
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = "reporte.png";
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                btn.innerHTML = "✅ Descargado";
+                                setTimeout(() => btn.innerHTML = originalText, 2000);
+                            }}
+                        }});
+                    }});
+                }};
+                </script>
+            """, height=45) 
+        else:
+            st.button("📋 Copiar Tabla / Imagen", disabled=True, use_container_width=True)
+            
+    with dcol2:
+        if st.session_state.proceso_completo:
+            safe_name = nombre_excel.strip() if nombre_excel.strip() else "Reporte_WLHopper"
+            if not safe_name.endswith(".xlsx"): safe_name += ".xlsx"
+            st.download_button("📊 Descargar Excel", data=excel_data, file_name=safe_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        else:
+            st.button("📊 Descargar Excel", disabled=True, use_container_width=True)
+    
+    with dcol3:
+        z_buf = BytesIO()
+        if st.session_state.proceso_completo and st.session_state.hay_archivos:
+            with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
+                for r, d, files in os.walk("descargas_temp"):
+                    for f in files: zf.write(os.path.join(r, f), f)
+        
+        safe_zip = nombre_zip.strip() if nombre_zip.strip() else "certificados"
+        if safe_zip.endswith(".xlsx"): safe_zip = safe_zip[:-5]
+        if not safe_zip.endswith(".zip"): safe_zip += ".zip"
+        
+        st.download_button(
+            "📂 Descargar Archivo ZIP", 
+            data=z_buf.getvalue(), 
+            file_name=safe_zip, 
+            disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
+            use_container_width=True
+        )
+        
+        # --- AUTO SCROLL A LOS BOTONES DE DESCARGA ---
+        if st.session_state.proceso_completo:
+            st.components.v1.html("""<script>
+            setTimeout(() => {
+                const buttons = window.parent.document.querySelectorAll('button[kind="primary"], button[kind="secondary"]');
+                if (buttons.length > 0) {
+                    buttons[buttons.length - 1].scrollIntoView({behavior: 'smooth'});
+                }
+            }, 500);
+            </script>""", height=0)
+
+    # El bloque de compartir como imagen se movió a dcol1 y se intercala por CSS.
+
+    st.divider()
+    st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
+    st.caption("Consultas a: fcendra@sullair.com.ar")
