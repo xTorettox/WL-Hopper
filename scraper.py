@@ -622,3 +622,297 @@ class BureauVeritasBot:
         if self.browser: self.browser.close()
         if getattr(self, "pw_started_here", False) and self.pw:
             self.pw.stop()
+
+class MicrosoftSharePointBot:
+    def __init__(self, headless=True):
+        self.headless = headless
+        self.pw = None
+        self.browser = None
+        self.context = None
+        self.page = None
+        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    def iniciar(self, usuario, clave, pw_instance=None):
+        try:
+            self.pw_started_here = False
+            if pw_instance:
+                self.pw = pw_instance
+            else:
+                self.pw = sync_playwright().start()
+                self.pw_started_here = True
+            
+            # --- Browser Launching ---
+            rutas_posibles = [
+                "/usr/bin/chromium",
+                "/usr/bin/chromium-browser",
+                "/usr/lib/chromium/chromium",
+                "/usr/bin/google-chrome"
+            ]
+            
+            self.browser = None
+            for ruta in rutas_posibles:
+                if os.path.exists(ruta):
+                    try:
+                        self.browser = self.pw.chromium.launch(
+                            executable_path=ruta,
+                            headless=self.headless,
+                            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"]
+                        )
+                        break
+                    except:
+                        continue
+            
+            if not self.browser:
+                self.browser = self.pw.chromium.launch(
+                    headless=self.headless,
+                    args=["--disable-extensions", "--no-sandbox", "--disable-dev-shm-usage"]
+                )
+                
+            self.context = self.browser.new_context(accept_downloads=True)
+            self.page = self.context.new_page()
+            
+            # Navigate to SharePoint
+            self.page.goto("https://tefsullairargentina.sharepoint.com/sites/BACKOFFICEARG", wait_until="load", timeout=60000)
+            self.page.wait_for_timeout(3000)
+            
+            # Check redirect to MS login
+            if "login.microsoftonline.com" in self.page.url:
+                self.page.wait_for_selector('input[type="email"], input[name="loginfmt"]', timeout=15000)
+                self.page.fill('input[type="email"], input[name="loginfmt"]', usuario)
+                
+                next_btn = self.page.locator('input[type="submit"], button#idSIButton9, input[value="Siguiente"], input[value="Next"]')
+                next_btn.first.click()
+                self.page.wait_for_timeout(3000)
+                
+                self.page.wait_for_selector('input[type="password"], input[name="passwd"]', timeout=15000)
+                self.page.fill('input[type="password"], input[name="passwd"]', clave)
+                
+                signin_btn = self.page.locator('input[type="submit"], button#idSIButton9, input[value="Iniciar sesión"], input[value="Sign in"]')
+                signin_btn.first.click()
+                self.page.wait_for_timeout(3000)
+                
+                # Stay signed in?
+                try:
+                    stay_btn = self.page.locator('input[type="submit"], button#idSIButton9')
+                    if stay_btn.count() > 0:
+                        stay_btn.first.click()
+                except:
+                    pass
+                self.page.wait_for_timeout(5000)
+                
+            try:
+                self.page.wait_for_selector('div[role="main"], #O365_SearchBoxContainer_Input, input[placeholder*="Buscar"], input[placeholder*="Search"]', timeout=30000)
+                return True, ""
+            except:
+                if "sharepoint.com" in self.page.url:
+                    return True, ""
+                return False, "No se pudo verificar la carga de SharePoint"
+        except Exception as e:
+            return False, str(e)
+
+    def procesar_interno(self, interno, ruta_base, prefijo_cert=""):
+        res = {"status": "No encontrado", "descargado": False, "archivo": "-", "tipo_doc": "-", "log": []}
+        log_pasos = []
+        try:
+            log_pasos.append(f"🔍 Buscando '{interno}' en SharePoint (BACKOFFICEARG)...")
+            search_url = f"https://tefsullairargentina.sharepoint.com/sites/BACKOFFICEARG/_layouts/15/search.aspx?q={interno}"
+            self.page.goto(search_url, wait_until="load", timeout=30000)
+            self.page.wait_for_timeout(5000)
+            
+            all_links = self.page.query_selector_all("a")
+            candidates = []
+            for link in all_links:
+                try:
+                    text = (link.inner_text() or "").strip()
+                    href = link.get_attribute("href") or ""
+                    aria_label = link.get_attribute("aria-label") or ""
+                    title_attr = link.get_attribute("title") or ""
+                    combined_text = f"{text} {aria_label} {title_attr}".upper()
+                    
+                    if interno.upper() in combined_text:
+                        candidates.append({"element": link, "text": combined_text, "href": href})
+                except:
+                    continue
+            
+            # Match scoring
+            matched_candidates = []
+            for cand in candidates:
+                ct = cand["text"]
+                is_tc = ("TITULO" in ct or "TÍTULO" in ct or "CEDULA" in ct or "CÉDULA" in ct)
+                is_fac = ("FACTURA" in ct or "COMPRA" in ct)
+                
+                if is_tc:
+                    score = 2
+                elif is_fac:
+                    score = 1
+                else:
+                    score = 0
+                
+                matched_candidates.append({
+                    "element": cand["element"],
+                    "text": cand["text"],
+                    "href": cand["href"],
+                    "score": score
+                })
+                
+            matched_candidates = [c for c in matched_candidates if c["score"] > 0]
+            matched_candidates.sort(key=lambda x: x["score"], reverse=True)
+            
+            # Fallback to interactive search if no candidates found
+            if not matched_candidates:
+                log_pasos.append("⚠️ Búsqueda directa no arrojó resultados. Intentando interactiva...")
+                self.page.goto("https://tefsullairargentina.sharepoint.com/sites/BACKOFFICEARG", wait_until="load", timeout=30000)
+                self.page.wait_for_timeout(3000)
+                
+                search_selectors = [
+                    'input[placeholder*="Buscar"]',
+                    'input[placeholder*="Search"]',
+                    'input[aria-label*="Buscar"]',
+                    'input[aria-label*="Search"]',
+                    'input.ms-SearchBox-field',
+                    '#O365_SearchBoxContainer_Input'
+                ]
+                search_input = None
+                for sel in search_selectors:
+                    search_input = self.page.locator(sel)
+                    if search_input.count() > 0:
+                        break
+                        
+                if search_input and search_input.count() > 0:
+                    search_input.first.click()
+                    self.page.keyboard.press("Control+A")
+                    self.page.keyboard.press("Backspace")
+                    search_input.first.fill(interno)
+                    self.page.wait_for_timeout(3000)
+                    
+                    all_links = self.page.query_selector_all("a, [role='option'], .ms-SearchBox-suggestion")
+                    candidates = []
+                    for link in all_links:
+                        try:
+                            text = (link.inner_text() or "").strip()
+                            href = link.get_attribute("href") or ""
+                            combined_text = text.upper()
+                            if interno.upper() in combined_text:
+                                candidates.append({"element": link, "text": combined_text, "href": href})
+                        except:
+                            continue
+                            
+                    for cand in candidates:
+                        ct = cand["text"]
+                        is_tc = ("TITULO" in ct or "TÍTULO" in ct or "CEDULA" in ct or "CÉDULA" in ct)
+                        is_fac = ("FACTURA" in ct or "COMPRA" in ct)
+                        
+                        if is_tc:
+                            score = 2
+                        elif is_fac:
+                            score = 1
+                        else:
+                            score = 0
+                            
+                        matched_candidates.append({
+                            "element": cand["element"],
+                            "text": cand["text"],
+                            "href": cand["href"],
+                            "score": score
+                        })
+                    
+                    matched_candidates = [c for c in matched_candidates if c["score"] > 0]
+                    matched_candidates.sort(key=lambda x: x["score"], reverse=True)
+            
+            if matched_candidates:
+                best = matched_candidates[0]
+                clean_name = best["text"].splitlines()[0].strip()
+                log_pasos.append(f"🎯 Documento coincidente: '{clean_name}'")
+                
+                # Direct download click
+                try:
+                    log_pasos.append("⏳ Intentando descargar...")
+                    with self.page.expect_download(timeout=10000) as download_info:
+                        best["element"].click()
+                    download = download_info.value
+                    
+                    tipo_doc = "Título + Cédula" if best["score"] == 2 else "Factura"
+                    file_extension = ".pdf"
+                    if download.suggested_filename and "." in download.suggested_filename:
+                        file_extension = os.path.splitext(download.suggested_filename)[1]
+                        
+                    nombre_base = f"{interno}_{tipo_doc.replace(' ', '')}{file_extension}"
+                    prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
+                    nombre = f"{prefijo}{nombre_base}"
+                    ruta_archivo = os.path.join(ruta_base, nombre)
+                    
+                    download.save_as(ruta_archivo)
+                    log_pasos.append(f"💾 Guardado: {nombre}")
+                    return {
+                        "status": "Encontrado",
+                        "descargado": True,
+                        "archivo": nombre,
+                        "tipo_doc": tipo_doc,
+                        "log": log_pasos
+                    }
+                except Exception as click_err:
+                    log_pasos.append(f"⚠️ Descarga directa falló: {click_err}. Intentando fallback pestaña visor...")
+                    
+                    pages = self.context.pages
+                    if len(pages) > 1:
+                        new_page = pages[-1]
+                        try:
+                            new_page.wait_for_timeout(3000)
+                            download_selectors = [
+                                'button[aria-label*="Descargar"]',
+                                'button[aria-label*="Download"]',
+                                'button:has-text("Descargar")',
+                                'button:has-text("Download")',
+                                '#downloadActionButton',
+                                '[data-automationid="downloadActionButton"]'
+                            ]
+                            btn = None
+                            for sel in download_selectors:
+                                btn = new_page.locator(sel)
+                                if btn.count() > 0:
+                                    break
+                                    
+                            if btn and btn.count() > 0:
+                                with new_page.expect_download(timeout=15000) as download_info:
+                                    btn.first.click()
+                                download = download_info.value
+                                
+                                tipo_doc = "Título + Cédula" if best["score"] == 2 else "Factura"
+                                file_extension = ".pdf"
+                                if download.suggested_filename and "." in download.suggested_filename:
+                                    file_extension = os.path.splitext(download.suggested_filename)[1]
+                                    
+                                nombre_base = f"{interno}_{tipo_doc.replace(' ', '')}{file_extension}"
+                                prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
+                                nombre = f"{prefijo}{nombre_base}"
+                                ruta_archivo = os.path.join(ruta_base, nombre)
+                                
+                                download.save_as(ruta_archivo)
+                                log_pasos.append(f"💾 Guardado: {nombre}")
+                                new_page.close()
+                                return {
+                                    "status": "Encontrado",
+                                    "descargado": True,
+                                    "archivo": nombre,
+                                    "tipo_doc": tipo_doc,
+                                    "log": log_pasos
+                                }
+                        except Exception as e_new_page:
+                            log_pasos.append(f"❌ Error en pestaña visor: {e_new_page}")
+                        finally:
+                            try:
+                                new_page.close()
+                            except:
+                                pass
+            else:
+                log_pasos.append("❌ No se encontró documento título+cédula ni factura de compra.")
+                
+        except Exception as e:
+            log_pasos.append(f"❌ Error crítico SharePoint: {str(e)[:50]}")
+            
+        return res
+
+    def cerrar(self):
+        if self.browser: self.browser.close()
+        if getattr(self, "pw_started_here", False) and self.pw:
+            self.pw.stop()
