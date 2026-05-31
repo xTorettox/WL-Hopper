@@ -155,6 +155,26 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- FUNCIÓN DE LOGIN (Control de Acceso) ---
+def es_usuario_ingresos():
+    """Devuelve True si el usuario actual pertenece al área de Ingresos."""
+    username = st.session_state.get("logged_user", "")
+    if not username: return False
+    
+    # Lista artesanal whitelisted
+    if username in ["fcendra", "damian", "mkette", "mmette", "dkette", "dausili"]:
+        return True
+        
+    # Intento de base de datos Supabase
+    if supabase:
+        try:
+            res = supabase.table("usuarios_areas").select("area").eq("usuario", username).execute()
+            if res.data and res.data[0].get("area", "").lower() == "ingresos":
+                return True
+        except:
+            pass
+            
+    return False
+
 def check_password():
     """Devuelve True si el usuario ingresó credenciales válidas."""
     def password_entered():
@@ -171,6 +191,7 @@ def check_password():
                     res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", st.session_state["logged_user"]).execute()
                     wl_creds = {}
                     bv_creds = {}
+                    ms_creds = {}
                     if res.data:
                         for cred in res.data:
                             s_name = cred.get("sitio", "")
@@ -182,9 +203,12 @@ def check_password():
                                     wl_creds[u_dec] = p_dec
                                 elif s_name.startswith("BV_"):
                                     bv_creds[u_dec] = p_dec
+                                elif s_name.startswith("MS_"):
+                                    ms_creds[u_dec] = p_dec
                     
                     st.session_state["wl_creds_dict"] = wl_creds
                     st.session_state["bv_creds_dict"] = bv_creds
+                    st.session_state["ms_creds_dict"] = ms_creds
                     
                     if wl_creds:
                         first_wl = list(wl_creds.keys())[0]
@@ -199,6 +223,13 @@ def check_password():
                         st.session_state["bv_pw"] = bv_creds[first_bv]
                     else:
                         st.session_state["bv_user"], st.session_state["bv_pw"] = "", ""
+
+                    if ms_creds:
+                        first_ms = list(ms_creds.keys())[0]
+                        st.session_state["ms_user"] = first_ms
+                        st.session_state["ms_pw"] = ms_creds[first_ms]
+                    else:
+                        st.session_state["ms_user"], st.session_state["ms_pw"] = "", ""
                 except Exception as e:
                     print(f"Error fetching credentials: {e}")
         else:
@@ -365,112 +396,221 @@ if check_password():
     st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px; margin-bottom: 25px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-# --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
     with st.expander("🔐 Credenciales", expanded=not is_exec):
-        st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifrada. Las claves que almacenes van a quedar sujetas a este perfil.")
+        st.write("Gestiona tus credenciales de forma cifrada en Supabase. Las claves quedan vinculadas a tu cuenta de usuario.")
         
         wl_creds_dict = st.session_state.get("wl_creds_dict", {})
         bv_creds_dict = st.session_state.get("bv_creds_dict", {})
+        ms_creds_dict = st.session_state.get("ms_creds_dict", {})
         
-        c_cred1, c_cred2 = st.columns(2)
+        # --- GRILLA DE PERFILES CONFIGURADOS ---
+        st.markdown("##### Perfiles Activos")
         
-        # --- COLUMNA 1: WORKLIFT ---
-        with c_cred1:
-            col_ico_wl, col_sel_wl = st.columns([1, 3])
-            
-            with col_ico_wl:
-                # El contenedor nativo hereda el tamaño fijo que le damos a st.image
-                with st.container(border=True):
-                    try:
-                        # Clavamos el ancho en 64px nativos para hacer el "cuadradito"
-                        st.image("img/WL-Logo.png", width=64)
-                    except:
-                        st.markdown("<h6 style='text-align: center; margin: 0;'>WL</h6>", unsafe_allow_html=True)
-            
-            with col_sel_wl:
+        # Determinar cuántas columnas necesitamos (2 o 3 según área)
+        show_ms = es_usuario_ingresos()
+        cols_count = 3 if show_ms else 2
+        cols = st.columns(cols_count)
+        
+        # Column 1: Worklift
+        with cols[0]:
+            with st.container(border=True):
+                st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+                try:
+                    st.image("img/WL-Logo.png", width=64)
+                except:
+                    st.markdown("<h3>WL</h3>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                
                 wl_opciones = list(wl_creds_dict.keys())
                 if wl_opciones:
-                    sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real", disabled=is_exec)
+                    sel_wl = st.selectbox("Perfil Worklift", wl_opciones, key="sel_wl_active", disabled=is_exec)
+                    st.caption(f"Usuario: `{sel_wl}`")
+                    
+                    if st.button("🗑️ Eliminar WL", key="del_wl", disabled=is_exec, use_container_width=True):
+                        if supabase:
+                            sitio_val = f"WL_{st.session_state.get('logged_user', '')}_{sel_wl}"
+                            try:
+                                supabase.table("credenciales_sitios").delete().eq("sitio", sitio_val).execute()
+                                del wl_creds_dict[sel_wl]
+                                st.session_state["wl_creds_dict"] = wl_creds_dict
+                                st.success("Eliminado")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
                 else:
-                    sel_empty_wl = st.selectbox("Perfil WL", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_wl_empty", disabled=is_exec)
-                    sel_wl = "➕ Nueva Credencial..." if sel_empty_wl == "➕ Nueva Credencial..." else ""
-            
-            is_new_wl = (sel_wl == "➕ Nueva Credencial...") or (not wl_opciones and sel_wl == "")
-            wl_u = st.text_input("Usuario WL", value="" if is_new_wl else sel_wl, key="inp_wl_u", disabled=is_exec or not is_new_wl)
-            wl_p = st.text_input("Contraseña WL", value="" if is_new_wl else wl_creds_dict.get(sel_wl, ""), type="password", key="inp_wl_p", disabled=is_exec)
-            
-            if st.button("💾 Guardar WL", use_container_width=True, disabled=is_exec):
-                if not wl_u or not wl_p:
-                    st.error("Debes ingresar un usuario y contraseña.")
-                elif supabase:
-                    try:
-                        sitio_val = f"WL_{st.session_state.get('logged_user', '')}_{wl_u}"
-                        res_wl = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
-                        if res_wl.data: supabase.table("credenciales_sitios").update({"user_enc": encriptar(wl_u), "pass_enc": encriptar(wl_p)}).eq("sitio", sitio_val).execute()
-                        else: supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(wl_u), "pass_enc": encriptar(wl_p)}).execute()
-                        wl_creds_dict[wl_u] = wl_p
-                        st.session_state["wl_creds_dict"] = wl_creds_dict
-                        st.success("Guardado en Worklift")
-                    except Exception as e: st.error(f"Error: {e}")
-
-        # --- COLUMNA 2: BUREAU VERITAS ---
-        with c_cred2:
-            col_ico_bv, col_sel_bv = st.columns([1, 3])
-            
-            with col_ico_bv:
-                # Al usar exactamente el mismo contenedor y el mismo width, quedan gemelos
-                with st.container(border=True):
-                    try:
-                        # Mismo ancho exacto de 64px
-                        st.image("img/BV-Logo.png", width=64)
-                    except:
-                        st.markdown("<h6 style='text-align: center; margin: 0;'>BV</h6>", unsafe_allow_html=True)
-            
-            with col_sel_bv:
+                    st.warning("Sin configurar")
+                    sel_wl = ""
+                    
+        # Column 2: Bureau Veritas
+        with cols[1]:
+            with st.container(border=True):
+                st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+                try:
+                    st.image("img/BV-Logo.png", width=64)
+                except:
+                    st.markdown("<h3>BV</h3>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                
                 bv_opciones = list(bv_creds_dict.keys())
                 if bv_opciones:
-                    sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real", disabled=is_exec)
+                    sel_bv = st.selectbox("Perfil BV", bv_opciones, key="sel_bv_active", disabled=is_exec)
+                    st.caption(f"Usuario: `{sel_bv}`")
+                    
+                    if st.button("🗑️ Eliminar BV", key="del_bv", disabled=is_exec, use_container_width=True):
+                        if supabase:
+                            sitio_val = f"BV_{st.session_state.get('logged_user', '')}_{sel_bv}"
+                            try:
+                                supabase.table("credenciales_sitios").delete().eq("sitio", sitio_val).execute()
+                                del bv_creds_dict[sel_bv]
+                                st.session_state["bv_creds_dict"] = bv_creds_dict
+                                st.success("Eliminado")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
                 else:
-                    sel_empty_bv = st.selectbox("Perfil BV", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_bv_empty", disabled=is_exec)
-                    sel_bv = "➕ Nueva Credencial..." if sel_empty_bv == "➕ Nueva Credencial..." else ""
-            
-            is_new_bv = (sel_bv == "➕ Nueva Credencial...") or (not bv_opciones and sel_bv == "")
-            bv_u = st.text_input("Usuario BV", value="" if is_new_bv else sel_bv, key="inp_bv_u", disabled=is_exec or not is_new_bv)
-            bv_p = st.text_input("Contraseña BV", value="" if is_new_bv else bv_creds_dict.get(sel_bv, ""), type="password", key="inp_bv_p", disabled=is_exec)
-            
-            if st.button("💾 Guardar BV", use_container_width=True, disabled=is_exec):
-                if not bv_u or not bv_p:
-                    st.error("Debes ingresar un usuario y contraseña.")
-                elif supabase:
-                    try:
-                        sitio_val = f"BV_{st.session_state.get('logged_user', '')}_{bv_u}"
-                        res_bv = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
-                        if res_bv.data: supabase.table("credenciales_sitios").update({"user_enc": encriptar(bv_u), "pass_enc": encriptar(bv_p)}).eq("sitio", sitio_val).execute()
-                        else: supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(bv_u), "pass_enc": encriptar(bv_p)}).execute()
-                        bv_creds_dict[bv_u] = bv_p
-                        st.session_state["bv_creds_dict"] = bv_creds_dict
-                        st.success("Guardado en Bureau Veritas")
-                    except Exception as e: st.error(f"Error: {e}")
+                    st.warning("Sin configurar")
+                    sel_bv = ""
 
-    # Fin box credenciales
-        
+        # Column 3: Microsoft SharePoint (Only if ingresos)
+        if show_ms:
+            with cols[2]:
+                with st.container(border=True):
+                    st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+                    try:
+                        st.image("img/MS-Logo.png", width=64)
+                    except:
+                        st.markdown("<h3>MS</h3>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    ms_opciones = list(ms_creds_dict.keys())
+                    if ms_opciones:
+                        sel_ms = st.selectbox("Perfil SharePoint", ms_opciones, key="sel_ms_active", disabled=is_exec)
+                        st.caption(f"Usuario: `{sel_ms}`")
+                        
+                        if st.button("🗑️ Eliminar MS", key="del_ms", disabled=is_exec, use_container_width=True):
+                            if supabase:
+                                sitio_val = f"MS_{st.session_state.get('logged_user', '')}_{sel_ms}"
+                                try:
+                                    supabase.table("credenciales_sitios").delete().eq("sitio", sitio_val).execute()
+                                    del ms_creds_dict[sel_ms]
+                                    st.session_state["ms_creds_dict"] = ms_creds_dict
+                                    st.success("Eliminado")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+                    else:
+                        st.warning("Sin configurar")
+                        sel_ms = ""
+        else:
+            sel_ms = ""
+
+        # --- FORMULARIO DE AGREGAR CREDENCIAL ---
+        st.divider()
+        if "mostrar_agregar_form" not in st.session_state:
+            st.session_state.mostrar_agregar_form = False
+            
+        if not st.session_state.mostrar_agregar_form:
+            if st.button("➕ Configurar Nueva Credencial", key="btn_show_add", use_container_width=True, disabled=is_exec):
+                st.session_state.mostrar_agregar_form = True
+                st.rerun()
+        else:
+            with st.container(border=True):
+                c_form1, c_form2 = st.columns([1.2, 3])
+                
+                with c_form1:
+                    sitio_opciones = ["Worklift (WL)", "Bureau Veritas (BV)"]
+                    if show_ms:
+                        sitio_opciones.append("Microsoft SharePoint (MS)")
+                        
+                    sitio_a_agregar = st.selectbox("Sitio Destino", sitio_opciones, key="add_sitio_sel")
+                    
+                    # Mostrar logo correspondiente dinámicamente
+                    st.markdown("<div style='text-align: center; margin-top: 15px;'>", unsafe_allow_html=True)
+                    if "Worklift" in sitio_a_agregar:
+                        logo_form_path = "img/WL-Logo.png"
+                    elif "Bureau" in sitio_a_agregar:
+                        logo_form_path = "img/BV-Logo.png"
+                    else:
+                        logo_form_path = "img/MS-Logo.png"
+                        
+                    try:
+                        st.image(logo_form_path, width=72)
+                    except:
+                        st.write("🔑")
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                with c_form2:
+                    st.markdown(f"#### Agregar Credencial para {sitio_a_agregar}")
+                    new_u = st.text_input("Usuario / Correo", key="add_new_u")
+                    new_p = st.text_input("Contraseña", type="password", key="add_new_p")
+                    
+                    c_btn1, c_btn2 = st.columns(2)
+                    with c_btn1:
+                        if st.button("💾 Guardar Credencial", key="btn_save_cred", use_container_width=True, type="primary"):
+                            if not new_u or not new_p:
+                                st.error("Ingresa usuario y contraseña")
+                            else:
+                                if "Worklift" in sitio_a_agregar:
+                                    sitio_prefix = "WL"
+                                    creds_dict = wl_creds_dict
+                                    dict_key = "wl_creds_dict"
+                                elif "Bureau" in sitio_a_agregar:
+                                    sitio_prefix = "BV"
+                                    creds_dict = bv_creds_dict
+                                    dict_key = "bv_creds_dict"
+                                else:
+                                    sitio_prefix = "MS"
+                                    creds_dict = ms_creds_dict
+                                    dict_key = "ms_creds_dict"
+                                    
+                                if supabase:
+                                    try:
+                                        sitio_val = f"{sitio_prefix}_{st.session_state.get('logged_user', '')}_{new_u}"
+                                        res_find = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
+                                        if res_find.data:
+                                            supabase.table("credenciales_sitios").update({"user_enc": encriptar(new_u), "pass_enc": encriptar(new_p)}).eq("sitio", sitio_val).execute()
+                                        else:
+                                            supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(new_u), "pass_enc": encriptar(new_p)}).execute()
+                                        
+                                        creds_dict[new_u] = new_p
+                                        st.session_state[dict_key] = creds_dict
+                                        st.success("Guardado correctamente!")
+                                        st.session_state.mostrar_agregar_form = False
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error guardando en BD: {e}")
+                    with c_btn2:
+                        if st.button("❌ Cancelar", key="btn_cancel_add", use_container_width=True):
+                            st.session_state.mostrar_agregar_form = False
+                            st.rerun()
+
         # Synchronize selection with session state for bot execution
-        st.session_state["wl_user"] = wl_u if is_new_wl else sel_wl
-        st.session_state["wl_pw"] = wl_p if is_new_wl else wl_creds_dict.get(sel_wl, "")
-        st.session_state["bv_user"] = bv_u if is_new_bv else sel_bv
-        st.session_state["bv_pw"] = bv_p if is_new_bv else bv_creds_dict.get(sel_bv, "")
+        st.session_state["wl_user"] = sel_wl if sel_wl else ""
+        st.session_state["wl_pw"] = wl_creds_dict.get(sel_wl, "") if sel_wl else ""
+        st.session_state["bv_user"] = sel_bv if sel_bv else ""
+        st.session_state["bv_pw"] = bv_creds_dict.get(sel_bv, "") if sel_bv else ""
+        st.session_state["ms_user"] = sel_ms if sel_ms else ""
+        st.session_state["ms_pw"] = ms_creds_dict.get(sel_ms, "") if sel_ms else ""
     
     col_left, col_right = st.columns([1, 1.2], gap="large")
     
     with col_left:
         
         with st.container(border=True):
-            c1, c2 = st.columns(2)
-            bajar_cert = c1.checkbox("Descargar Certificados", value=True, disabled=is_exec)
-            bajar_inf = c2.checkbox("Descargar Informes", value=False, disabled=is_exec)
+            if es_usuario_ingresos():
+                c1, c2, c3 = st.columns(3)
+                bajar_cert = c1.checkbox("Certificados", value=True, disabled=is_exec)
+                bajar_inf = c2.checkbox("Informes", value=False, disabled=is_exec)
+                bajar_doc_equipo = c3.checkbox("Doc. Equipo", value=False, disabled=is_exec, help="Descarga Título+Cédula o Factura de SharePoint")
+            else:
+                c1, c2 = st.columns(2)
+                bajar_cert = c1.checkbox("Descargar Certificados", value=True, disabled=is_exec)
+                bajar_inf = c2.checkbox("Descargar Informes", value=False, disabled=is_exec)
+                bajar_doc_equipo = False
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.", disabled=is_exec)
             modo_pruebas = False
             if st.session_state.get("logged_user") == "fcendra":
+                modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True, disabled=is_exec)
                 modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True, disabled=is_exec)
                 
         with st.expander("⚙️ Configuración de Salida", expanded=not is_exec):
@@ -615,10 +755,13 @@ if check_password():
         
         if not wl_usr or not wl_pass:
             st.error("Faltan credenciales de Worklift. Selecciona o guarda una.")
+        elif bajar_doc_equipo and not st.session_state.get("ms_user", ""):
+            st.error("Faltan credenciales de Microsoft SharePoint para descargar la documentación de equipos. Guarda una en la sección de credenciales.")
         else:
             # Almacenamos parámetros y disparamos ejecución diferida
             st.session_state.bajar_cert_val = bajar_cert
             st.session_state.bajar_inf_val = bajar_inf
+            st.session_state.bajar_doc_equipo_val = bajar_doc_equipo
             st.session_state.es_semestral_val = es_semestral
             st.session_state.nombre_excel_val = nombre_excel
             st.session_state.nombre_zip_val = nombre_zip
@@ -631,6 +774,7 @@ if check_password():
         # Cargar parámetros almacenados
         bajar_cert = st.session_state.get("bajar_cert_val", True)
         bajar_inf = st.session_state.get("bajar_inf_val", False)
+        bajar_doc_equipo = st.session_state.get("bajar_doc_equipo_val", False)
         es_semestral = st.session_state.get("es_semestral_val", False)
         nombre_excel = st.session_state.get("nombre_excel_val", "Reporte_Hopper")
         nombre_zip = st.session_state.get("nombre_zip_val", "Certificados")
@@ -641,6 +785,8 @@ if check_password():
         wl_pass = st.session_state.get("wl_pw", "")
         bv_usr = st.session_state.get("bv_user", "")
         bv_pw = st.session_state.get("bv_pw", "")
+        ms_usr = st.session_state.get("ms_user", "")
+        ms_pass = st.session_state.get("ms_pw", "")
         
         try:
             ruta_temp = "descargas_temp"
@@ -655,6 +801,7 @@ if check_password():
                 "--- PARÁMETROS ---",
                 f"Descargar certificados: {si_no(bajar_cert)}",
                 f"Descargar informes de inspección: {si_no(bajar_inf)}",
+                f"Descargar doc. equipo (SharePoint): {si_no(bajar_doc_equipo)}",
                 f"Modo vencimiento semestral: {si_no(es_semestral)}",
                 "------------------",
                 "Iniciando conexión con Worklift..."
@@ -690,6 +837,19 @@ if check_password():
                             st.session_state.log_history[-1] = "🔐 Login exitoso en BV."
                         else:
                             st.session_state.log_history[-1] = f"❌ Falló conexión con BV: {error_bv_login}"
+                            
+                    # Conexión inicial a Microsoft SharePoint si corresponde
+                    exito_ms_login = False
+                    if bajar_doc_equipo and ms_usr and ms_pass:
+                        st.session_state.log_history.append("Iniciando conexión con Microsoft SharePoint...")
+                        render_terminal()
+                        ms_test_bot = MicrosoftSharePointBot(headless=True)
+                        exito_ms_login, error_ms_login = ms_test_bot.iniciar(ms_usr, ms_pass, pw_instance=bot.pw)
+                        ms_test_bot.cerrar()
+                        if exito_ms_login:
+                            st.session_state.log_history[-1] = "🔐 Login exitoso en SharePoint."
+                        else:
+                            st.session_state.log_history[-1] = f"❌ Falló conexión con SharePoint: {error_ms_login}"
                     
                     render_terminal()
                     
@@ -825,6 +985,28 @@ if check_password():
                                                 try: os.remove(f_path)
                                                 except: pass
                                 
+                        # --- DESCARGA DE DOCUMENTACIÓN DE EQUIPOS: SHAREPOINT ---
+                        res['doc_equipo'] = "-"
+                        res['doc_equipo_tipo'] = "-"
+                        if bajar_doc_equipo and ms_usr and ms_pass and exito_ms_login:
+                            st.session_state.log_history.append("Buscando en SharePoint...")
+                            render_terminal()
+                            ms_bot = MicrosoftSharePointBot(headless=True)
+                            ms_init, ms_err = ms_bot.iniciar(ms_usr, ms_pass, pw_instance=bot.pw)
+                            if ms_init:
+                                ms_res = ms_bot.procesar_interno(int_id, ruta_temp, prefijo_cert=prefijo_cert)
+                                ms_bot.cerrar()
+                                if ms_res.get('descargado'):
+                                    res['doc_equipo'] = ms_res.get('archivo')
+                                    res['doc_equipo_tipo'] = ms_res.get('tipo_doc')
+                                    st.session_state.log_history[-1] = f"✅ Encontrado en SharePoint ({ms_res.get('tipo_doc')})"
+                                else:
+                                    st.session_state.log_history[-1] = "❌ No se encontró en SharePoint."
+                            else:
+                                ms_bot.cerrar()
+                                st.session_state.log_history[-1] = f"❌ Error SharePoint: {ms_err}"
+                            render_terminal()
+
                         # --- IMPRESIÓN DEL LOG REESTRUCTURADO ---
                         st.session_state.log_history.append(f"Proveedor: {res.get('proveedor', 'Worklift')}")
                         
@@ -834,6 +1016,10 @@ if check_password():
                         desc_cert = " (descargado)" if res.get('cert') == "SI" else ""
                         status_tag = f" ({res.get('status', 'VIGENTE')})"
                         st.session_state.log_history.append(f"Último Certificado: {res.get('venc_real', res.get('venc'))}{desc_cert}{status_tag}")
+                        
+                        if bajar_doc_equipo:
+                            doc_status = f" ({res.get('doc_equipo_tipo')})" if res.get('doc_equipo') != "-" else ""
+                            st.session_state.log_history.append(f"Doc. Equipo: {'SI' if res.get('doc_equipo') != '-' else 'NO'}{doc_status}")
                         
                         # Cálculo de vigencia
                         def get_dt(d_str):
@@ -882,10 +1068,22 @@ if check_password():
                     # Generación de HTML
                     html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; vertical-align: middle; padding: 10px 20px; }}</style>
                     <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">"""
+                    
+                    headers_html = ['INTERNO', 'PROVEEDOR', 'ESTADO', 'ÚLTIMA INSPECCIÓN']
                     if es_semestral:
-                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO SEMESTRAL</th><th>VENCIMIENTO REAL</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
+                        headers_html += ['VENCIMIENTO SEMESTRAL', 'VENCIMIENTO REAL']
                     else:
-                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
+                        headers_html += ['VENCIMIENTO<br>ÚLTIMO CERTIFICADO']
+                    
+                    if bajar_doc_equipo:
+                        headers_html += ['DOC. EQUIPO']
+                        
+                    headers_html += ['CERTIFICADO', 'INFORME', 'OBSERVACIONES', 'ACCIONES']
+                    
+                    html += '<tr style="background-color: #008657; color: white; font-weight: bold;">'
+                    for h_val in headers_html:
+                        html += f'<th>{h_val}</th>'
+                    html += '</tr>'
  
                     excel_data = []
                     for r in res_lista:
@@ -905,6 +1103,11 @@ if check_password():
                             html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td><td>{r.get("venc_real", "N/A")}</td>'
                         else:
                             html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
+                        
+                        if bajar_doc_equipo:
+                            doc_val = r.get('doc_equipo_tipo', '-')
+                            html += f'<td style="font-weight: bold;">{doc_val}</td>'
+                            
                         html += f'<td>{cert_val}</td><td>{r["inf"]}</td>'
                         html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs_final", "-")}</td>'
                         html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
@@ -926,6 +1129,9 @@ if check_password():
                                 "ÚLTIMA INSPECCIÓN": r["insp"], 
                                 "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"]
                             }
+                        
+                        if bajar_doc_equipo:
+                            row_dict["DOC. EQUIPO"] = r.get("doc_equipo_tipo", "-")
                             
                         row_dict.update({
                             "CERTIFICADO": cert_val, "INFORME": r["inf"], 
@@ -974,212 +1180,6 @@ if check_password():
                 
                 if header_val == "ESTADO":
                     ancho_final = max(ancho_final, 22) # Más ancho
+                elif header_val == "DOC. EQUIPO":
+                    ancho_final = 20
                 elif header_val == "OBSERVACIONES":
-                    ancho_final = 19.57
-                elif header_val == "ACCIONES":
-                    ancho_final = 27.43
-                elif header_val == "INFORME":
-                    ancho_final = 9.5
-                
-                worksheet.column_dimensions[col_letra].width = ancho_final
-                
-                # Aplicar centrado y wrap a todas las celdas
-                for cell in column_cells:
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                
-            # Colores
-            green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-            green_font = Font(color="006100", bold=True)
-            yellow_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-            yellow_font = Font(color="9C5700", bold=True)
-            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-            red_font = Font(color="9C0006", bold=True)
-            
-            header_fill = PatternFill(start_color="008657", end_color="008657", fill_type="solid")
-            header_font = Font(color="FFFFFF", bold=True)
-            
-            if es_semestral:
-                worksheet.insert_rows(1)
-                worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(worksheet[2]))
-                title_cell = worksheet.cell(row=1, column=1)
-                title_cell.value = "⚠️ REPORTE DE VENCIMIENTOS SEMESTRALES (180 DÍAS)"
-                title_cell.font = Font(bold=True, size=14, color="FFFFFF")
-                title_cell.fill = header_fill
-                title_cell.alignment = Alignment(horizontal="center", vertical="center")
-                header_row = 2
-                worksheet.row_dimensions[1].height = 25
-            else:
-                header_row = 1
-            
-            for cell in worksheet[header_row]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            
-            headers = [cell.value for cell in worksheet[header_row]]
-            estado_idx = headers.index("ESTADO") + 1 if "ESTADO" in headers else -1
-                
-            for row in range(header_row + 1, worksheet.max_row + 1):
-                res_idx = row - (header_row + 1)
-                color_code = ""
-                if res_idx >= 0 and res_idx < len(st.session_state.res_lista):
-                    color_code = st.session_state.res_lista[res_idx].get('color', '').upper()
-                    
-                for idx in [estado_idx]:
-                    if idx != -1:
-                        cell = worksheet.cell(row=row, column=idx)
-                        if cell.value:
-                            val = str(cell.value).upper()
-                            
-                            # Si estamos en la columna de estado principal, usamos el color explícito si existe
-                            if idx == estado_idx and color_code:
-                                if color_code == "VERDE":
-                                    cell.fill = green_fill
-                                    cell.font = green_font
-                                elif color_code == "AMARILLO":
-                                    cell.fill = yellow_fill
-                                    cell.font = yellow_font
-                                elif color_code == "ROJO":
-                                    cell.fill = red_fill
-                                    cell.font = red_font
-                            else:
-                                # Fallback o para la columna de estado semestral
-                                if "VERDE" in val or "VIGENTE" in val or "APROBADO" in val:
-                                    cell.fill = green_fill
-                                    cell.font = green_font
-                                elif "AMARILLO" in val or "PRÓXIMO" in val or "GESTIÓN" in val or "REINSPECCIONAR" in val:
-                                    cell.fill = yellow_fill
-                                    cell.font = yellow_font
-                                elif "ROJO" in val or "VENCIDO" in val or "RECHAZADO" in val or "ERROR" in val:
-                                    cell.fill = red_fill
-                                    cell.font = red_font
-
-
-    excel_data = excel_buffer.getvalue()
-
-    dcol1, dcol2, dcol3 = st.columns(3)
-    
-    with dcol1:
-        if st.session_state.proceso_completo:
-            components.html(f"""
-                <div id="desktopBtnContainer" style="display: none; margin:0; padding:0; height: 45px; align-items: center;">
-                    <button id="cBtn" style="width: 100%; height: 45px; background-color: {VERDE_SULLAIR}; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
-                        📋 Copiar Tabla Excel
-                    </button>
-                    <textarea id="hiddenTable" style="position:fixed; top:-1000px; opacity:0;">{st.session_state.html_excel}</textarea>
-                </div>
-                
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-                <div id="mobileBtnContainer" style="display: none; margin:0; padding:0; height: 45px; align-items: center;">
-                    <button id="shareBtn" style="width: 100%; height: 45px; background-color: #25D366; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: sans-serif; box-sizing: border-box;">
-                        📱 Compartir Tabla como Imagen
-                    </button>
-                    <div id="captureArea" style="position: absolute; left: -9999px; background: white; padding: 10px;">
-                        {st.session_state.html_excel}
-                    </div>
-                </div>
-
-                <script>
-                // Detección de dispositivo
-                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                if (isMobile) {{
-                    document.getElementById('mobileBtnContainer').style.display = 'flex';
-                }} else {{
-                    document.getElementById('desktopBtnContainer').style.display = 'flex';
-                }}
-
-                // Lógica de copiar (Desktop)
-                document.getElementById('cBtn').onclick = function() {{
-                    const btn = this;
-                    const html = document.getElementById('hiddenTable').value;
-                    const blob = new Blob([html], {{ type: 'text/html' }});
-                    const data = [new ClipboardItem({{ 'text/html': blob }})];
-                    navigator.clipboard.write(data).then(() => {{
-                        btn.innerHTML = "✅ ¡COPIADO! (pegar con ctrl+v en Excel)";
-                        btn.style.backgroundColor = "#28a745";
-                        setTimeout(() => {{ btn.innerHTML = "📋 Copiar Tabla Excel"; btn.style.backgroundColor = "{VERDE_SULLAIR}"; }}, 2000);
-                    }});
-                }};
-
-                // Lógica de compartir imagen (Móvil)
-                document.getElementById('shareBtn').onclick = function() {{
-                    const btn = this;
-                    const originalText = btn.innerHTML;
-                    btn.innerHTML = "⏳ Generando...";
-                    
-                    html2canvas(document.getElementById('captureArea')).then(canvas => {{
-                        canvas.toBlob(blob => {{
-                            const file = new File([blob], "reporte.png", {{ type: "image/png" }});
-                            if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
-                                navigator.share({{
-                                    files: [file],
-                                    title: 'Reporte WL Hopper',
-                                    text: 'Reporte de Certificados'
-                                }}).then(() => {{
-                                    btn.innerHTML = "✅ Compartido";
-                                    setTimeout(() => btn.innerHTML = originalText, 2000);
-                                }}).catch(err => {{
-                                    btn.innerHTML = "❌ Error al compartir";
-                                    setTimeout(() => btn.innerHTML = originalText, 2000);
-                                }});
-                            }} else {{
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = "reporte.png";
-                                a.click();
-                                URL.revokeObjectURL(url);
-                                btn.innerHTML = "✅ Descargado";
-                                setTimeout(() => btn.innerHTML = originalText, 2000);
-                            }}
-                        }});
-                    }});
-                }};
-                </script>
-            """, height=45) 
-        else:
-            st.button("📋 Copiar Tabla / Imagen", disabled=True, use_container_width=True)
-            
-    with dcol2:
-        if st.session_state.proceso_completo:
-            safe_name = nombre_excel.strip() if nombre_excel.strip() else "Reporte_WLHopper"
-            if not safe_name.endswith(".xlsx"): safe_name += ".xlsx"
-            st.download_button("📊 Descargar Excel", data=excel_data, file_name=safe_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-        else:
-            st.button("📊 Descargar Excel", disabled=True, use_container_width=True)
-    
-    with dcol3:
-        z_buf = BytesIO()
-        if st.session_state.proceso_completo and st.session_state.hay_archivos:
-            with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
-                for r, d, files in os.walk("descargas_temp"):
-                    for f in files: zf.write(os.path.join(r, f), f)
-        
-        safe_zip = nombre_zip.strip() if nombre_zip.strip() else "certificados"
-        if safe_zip.endswith(".xlsx"): safe_zip = safe_zip[:-5]
-        if not safe_zip.endswith(".zip"): safe_zip += ".zip"
-        
-        st.download_button(
-            "📂 Descargar Archivo ZIP", 
-            data=z_buf.getvalue(), 
-            file_name=safe_zip, 
-            disabled=not (st.session_state.proceso_completo and st.session_state.hay_archivos), 
-            use_container_width=True
-        )
-        
-        # --- AUTO SCROLL A LOS BOTONES DE DESCARGA ---
-        if st.session_state.proceso_completo:
-            st.components.v1.html("""<script>
-            setTimeout(() => {
-                const buttons = window.parent.document.querySelectorAll('button[kind="primary"], button[kind="secondary"]');
-                if (buttons.length > 0) {
-                    buttons[buttons.length - 1].scrollIntoView({behavior: 'smooth'});
-                }
-            }, 500);
-            </script>""", height=0)
-
-    # El bloque de compartir como imagen se movió a dcol1 y se intercala por CSS.
-
-    st.divider()
-    st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
-    st.caption("Consultas a: fcendra@sullair.com.ar")
