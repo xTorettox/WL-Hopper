@@ -689,7 +689,16 @@ class MicrosoftSharePointBot:
                 
                 signin_btn = self.page.locator('input[type="submit"], button#idSIButton9, input[value="Iniciar sesión"], input[value="Sign in"]')
                 signin_btn.first.click()
-                self.page.wait_for_timeout(3000)
+                self.page.wait_for_timeout(4000)
+                
+                # Bypassing Microsoft Security Defaults / "More info required" screen if it appears
+                try:
+                    skip_link = self.page.locator('#skipLink, a#skipLink, :text("Ahora no"), :text("Skip for now")')
+                    if skip_link.count() > 0:
+                        skip_link.first.click()
+                        self.page.wait_for_timeout(4000)
+                except:
+                    pass
                 
                 # Stay signed in?
                 try:
