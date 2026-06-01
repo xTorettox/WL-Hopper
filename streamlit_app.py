@@ -1383,6 +1383,20 @@ if check_password():
 
     # El bloque de compartir como imagen se movió a dcol1 y se intercala por CSS.
 
+    # --- SECCIÓN DE CAPTURAS DE PANTALLA DIAGNÓSTICAS ---
+    capturas_dir = "descargas_temp/capturas"
+    if os.path.exists(capturas_dir) and os.listdir(capturas_dir):
+        st.write("---")
+        with st.expander("📸 Ver Paso a Paso Visual del Bot (Capturas de Pantalla)", expanded=True):
+            st.markdown("Estas capturas muestran en tiempo real la pantalla del navegador invisible corriendo en la nube. ¡Ideal para diagnosticar bloqueos de Microsoft SSO o SharePoint!")
+            archivos_cap = sorted(os.listdir(capturas_dir))
+            cols_cap = st.columns(min(len(archivos_cap), 4))
+            for idx, c_file in enumerate(archivos_cap):
+                col_i = idx % len(cols_cap)
+                with cols_cap[col_i]:
+                    with open(os.path.join(capturas_dir, c_file), "rb") as img_file:
+                        st.image(img_file.read(), caption=f"Paso {idx+1}: {c_file.replace('_', ' ').replace('.png', '')}", use_container_width=True)
+
     st.divider()
     st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
     st.caption("Consultas a: fcendra@sullair.com.ar")
