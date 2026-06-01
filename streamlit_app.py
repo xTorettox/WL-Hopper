@@ -839,16 +839,17 @@ if check_password():
                             
                     # Conexión inicial a Microsoft SharePoint si corresponde
                     exito_ms_login = False
+                    ms_bot = None
                     if bajar_doc_equipo and ms_usr and ms_pass:
                         st.session_state.log_history.append("Iniciando conexión con Microsoft SharePoint...")
                         render_terminal()
-                        ms_test_bot = MicrosoftSharePointBot(headless=True)
-                        exito_ms_login, error_ms_login = ms_test_bot.iniciar(ms_usr, ms_pass, pw_instance=bot.pw)
-                        ms_test_bot.cerrar()
+                        ms_bot = MicrosoftSharePointBot(headless=True)
+                        exito_ms_login, error_ms_login = ms_bot.iniciar(ms_usr, ms_pass, pw_instance=bot.pw)
                         if exito_ms_login:
                             st.session_state.log_history[-1] = "🔐 Login exitoso en SharePoint."
                         else:
                             st.session_state.log_history[-1] = f"❌ Falló conexión con SharePoint: {error_ms_login}"
+                            ms_bot.cerrar()
                     
                     render_terminal()
                     
@@ -987,23 +988,16 @@ if check_password():
                         # --- DESCARGA DE DOCUMENTACIÓN DE EQUIPOS: SHAREPOINT ---
                         res['doc_equipo'] = "-"
                         res['doc_equipo_tipo'] = "-"
-                        if bajar_doc_equipo and ms_usr and ms_pass and exito_ms_login:
-                            st.session_state.log_history.append("Buscando en SharePoint...")
+                        if bajar_doc_equipo and exito_ms_login and ms_bot:
+                            st.session_state.log_history.append(f"🔗 Consultando SharePoint para {int_id}...")
                             render_terminal()
-                            ms_bot = MicrosoftSharePointBot(headless=True)
-                            ms_init, ms_err = ms_bot.iniciar(ms_usr, ms_pass, pw_instance=bot.pw)
-                            if ms_init:
-                                ms_res = ms_bot.procesar_interno(int_id, ruta_temp, prefijo_cert=prefijo_cert)
-                                ms_bot.cerrar()
-                                if ms_res.get('descargado'):
-                                    res['doc_equipo'] = ms_res.get('archivo')
-                                    res['doc_equipo_tipo'] = ms_res.get('tipo_doc')
-                                    st.session_state.log_history[-1] = f"✅ Encontrado en SharePoint ({ms_res.get('tipo_doc')})"
-                                else:
-                                    st.session_state.log_history[-1] = "❌ No se encontró en SharePoint."
+                            ms_res = ms_bot.procesar_interno(int_id, ruta_temp, prefijo_cert=prefijo_cert)
+                            if ms_res.get('descargado'):
+                                res['doc_equipo'] = ms_res.get('archivo')
+                                res['doc_equipo_tipo'] = ms_res.get('tipo_doc')
+                                st.session_state.log_history[-1] = f"✅ Encontrado en SharePoint ({ms_res.get('tipo_doc')})"
                             else:
-                                ms_bot.cerrar()
-                                st.session_state.log_history[-1] = f"❌ Error SharePoint: {ms_err}"
+                                st.session_state.log_history[-1] = "❌ No se encontró en SharePoint."
                             render_terminal()
 
                         # --- IMPRESIÓN DEL LOG REESTRUCTURADO ---
@@ -1056,6 +1050,8 @@ if check_password():
                             
                         render_terminal()
         
+                    if ms_bot:
+                        ms_bot.cerrar()
                     bot.cerrar()
                     st.session_state.log_history.append("🔓 Sesiones cerradas correctamente.")
                     st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
