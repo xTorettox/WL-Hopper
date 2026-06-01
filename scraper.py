@@ -675,10 +675,17 @@ class MicrosoftSharePointBot:
             self.page.goto("https://tefsullairargentina.sharepoint.com/sites/BACKOFFICEARG", wait_until="load", timeout=60000)
             self.page.wait_for_timeout(3000)
             
+            os.makedirs("descargas_temp/capturas", exist_ok=True)
+            try: self.page.screenshot(path="descargas_temp/capturas/1_inicio_portal.png")
+            except: pass
+            
             # Check redirect to MS login
             if "login.microsoftonline.com" in self.page.url:
                 self.page.wait_for_selector('input[type="email"], input[name="loginfmt"]', timeout=15000)
                 self.page.fill('input[type="email"], input[name="loginfmt"]', usuario)
+                
+                try: self.page.screenshot(path="descargas_temp/capturas/2_email_ingresado.png")
+                except: pass
                 
                 next_btn = self.page.locator('input[type="submit"], button#idSIButton9, input[value="Siguiente"], input[value="Next"]')
                 next_btn.first.click()
@@ -686,6 +693,9 @@ class MicrosoftSharePointBot:
                 
                 self.page.wait_for_selector('input[type="password"], input[name="passwd"]', timeout=15000)
                 self.page.fill('input[type="password"], input[name="passwd"]', clave)
+                
+                try: self.page.screenshot(path="descargas_temp/capturas/3_password_ingresado.png")
+                except: pass
                 
                 signin_btn = self.page.locator('input[type="submit"], button#idSIButton9, input[value="Iniciar sesión"], input[value="Sign in"]')
                 signin_btn.first.click()
@@ -709,10 +719,15 @@ class MicrosoftSharePointBot:
                     pass
                 self.page.wait_for_timeout(5000)
                 
+                try: self.page.screenshot(path="descargas_temp/capturas/4_final_redirect.png")
+                except: pass
+                
             try:
                 self.page.wait_for_selector('div[role="main"], #O365_SearchBoxContainer_Input, input[placeholder*="Buscar"], input[placeholder*="Search"]', timeout=30000)
                 return True, ""
             except:
+                try: self.page.screenshot(path="descargas_temp/capturas/error_inicio.png")
+                except: pass
                 if "sharepoint.com" in self.page.url:
                     return True, ""
                 return False, "No se pudo verificar la carga de SharePoint"
