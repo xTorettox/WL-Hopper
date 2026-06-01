@@ -715,8 +715,15 @@ class MicrosoftSharePointBot:
         log_pasos = []
         try:
             log_pasos.append(f"🔍 Buscando '{interno}' en SharePoint (BACKOFFICEARG)...")
-            search_url = f"https://tefsullairargentina.sharepoint.com/sites/BACKOFFICEARG/_layouts/15/search.aspx?q={interno}"
+            search_url = f"https://tefsullairargentina.sharepoint.com/sites/BACKOFFICEARG/_layouts/15/search.aspx/siteall?q={interno}"
             self.page.goto(search_url, wait_until="load", timeout=30000)
+            
+            try:
+                # Esperar a que el texto del interno aparezca (indica que cargaron los resultados)
+                self.page.wait_for_selector(f"text={interno}", timeout=15000)
+            except Exception as e_wait:
+                log_pasos.append(f"⚠️ Nota de carga: {e_wait}")
+                
             self.page.wait_for_timeout(5000)
             
             all_links = self.page.query_selector_all("a")
@@ -727,7 +734,7 @@ class MicrosoftSharePointBot:
                     href = link.get_attribute("href") or ""
                     aria_label = link.get_attribute("aria-label") or ""
                     title_attr = link.get_attribute("title") or ""
-                    combined_text = f"{text} {aria_label} {title_attr}".upper()
+                    combined_text = f"{text} {aria_label} {title_attr} {href}".upper()
                     
                     if interno.upper() in combined_text:
                         candidates.append({"element": link, "text": combined_text, "href": href})
@@ -739,7 +746,7 @@ class MicrosoftSharePointBot:
             for cand in candidates:
                 ct = cand["text"]
                 is_tc = ("TITULO" in ct or "TÍTULO" in ct or "CEDULA" in ct or "CÉDULA" in ct)
-                is_fac = ("FACTURA" in ct or "COMPRA" in ct)
+                is_fac = ("FACTURA" in ct or "COMPRA" in ct or "FAC" in ct or " FC " in f" {ct} " or ct.startswith("FC"))
                 
                 if is_tc:
                     score = 2
@@ -791,7 +798,7 @@ class MicrosoftSharePointBot:
                         try:
                             text = (link.inner_text() or "").strip()
                             href = link.get_attribute("href") or ""
-                            combined_text = text.upper()
+                            combined_text = f"{text} {href}".upper()
                             if interno.upper() in combined_text:
                                 candidates.append({"element": link, "text": combined_text, "href": href})
                         except:
@@ -800,7 +807,7 @@ class MicrosoftSharePointBot:
                     for cand in candidates:
                         ct = cand["text"]
                         is_tc = ("TITULO" in ct or "TÍTULO" in ct or "CEDULA" in ct or "CÉDULA" in ct)
-                        is_fac = ("FACTURA" in ct or "COMPRA" in ct)
+                        is_fac = ("FACTURA" in ct or "COMPRA" in ct or "FAC" in ct or " FC " in f" {ct} " or ct.startswith("FC"))
                         
                         if is_tc:
                             score = 2
@@ -853,57 +860,63 @@ class MicrosoftSharePointBot:
                 except Exception as click_err:
                     log_pasos.append(f"⚠️ Descarga directa falló: {click_err}. Intentando fallback pestaña visor...")
                     
+                    download_selectors = [
+                        'button[aria-label*="Descargar"]',
+                        'button[aria-label*="Download"]',
+                        'button:has-text("Descargar")',
+                        'button:has-text("Download")',
+                        '#downloadActionButton',
+                        '[data-automationid="downloadActionButton"]'
+                    ]
+                    
+                    new_page = None
                     pages = self.context.pages
                     if len(pages) > 1:
                         new_page = pages[-1]
+                    else:
+                        new_page = self.context.new_page()
+                        new_page.goto(best["href"], wait_until="load", timeout=30000)
+                        
+                    try:
+                        new_page.wait_for_timeout(5000)
+                        btn = None
+                        for sel in download_selectors:
+                            btn = new_page.locator(sel)
+                            if btn.count() > 0:
+                                break
+                                
+                        if btn and btn.count() > 0:
+                            with new_page.expect_download(timeout=15000) as download_info:
+                                btn.first.click()
+                            download = download_info.value
+                            
+                            tipo_doc = "Título + Cédula" if best["score"] == 2 else "Factura"
+                            file_extension = ".pdf"
+                            if download.suggested_filename and "." in download.suggested_filename:
+                                file_extension = os.path.splitext(download.suggested_filename)[1]
+                                
+                            nombre_base = f"{interno}_{tipo_doc.replace(' ', '')}{file_extension}"
+                            prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
+                            nombre = f"{prefijo}{nombre_base}"
+                            ruta_archivo = os.path.join(ruta_base, nombre)
+                            
+                            download.save_as(ruta_archivo)
+                            log_pasos.append(f"💾 Guardado: {nombre}")
+                            new_page.close()
+                            return {
+                                "status": "Encontrado",
+                                "descargado": True,
+                                "archivo": nombre,
+                                "tipo_doc": tipo_doc,
+                                "log": log_pasos
+                            }
+                    except Exception as e_new_page:
+                        log_pasos.append(f"❌ Error en pestaña visor: {e_new_page}")
+                    finally:
                         try:
-                            new_page.wait_for_timeout(3000)
-                            download_selectors = [
-                                'button[aria-label*="Descargar"]',
-                                'button[aria-label*="Download"]',
-                                'button:has-text("Descargar")',
-                                'button:has-text("Download")',
-                                '#downloadActionButton',
-                                '[data-automationid="downloadActionButton"]'
-                            ]
-                            btn = None
-                            for sel in download_selectors:
-                                btn = new_page.locator(sel)
-                                if btn.count() > 0:
-                                    break
-                                    
-                            if btn and btn.count() > 0:
-                                with new_page.expect_download(timeout=15000) as download_info:
-                                    btn.first.click()
-                                download = download_info.value
-                                
-                                tipo_doc = "Título + Cédula" if best["score"] == 2 else "Factura"
-                                file_extension = ".pdf"
-                                if download.suggested_filename and "." in download.suggested_filename:
-                                    file_extension = os.path.splitext(download.suggested_filename)[1]
-                                    
-                                nombre_base = f"{interno}_{tipo_doc.replace(' ', '')}{file_extension}"
-                                prefijo = f"{prefijo_cert}_" if prefijo_cert else ""
-                                nombre = f"{prefijo}{nombre_base}"
-                                ruta_archivo = os.path.join(ruta_base, nombre)
-                                
-                                download.save_as(ruta_archivo)
-                                log_pasos.append(f"💾 Guardado: {nombre}")
-                                new_page.close()
-                                return {
-                                    "status": "Encontrado",
-                                    "descargado": True,
-                                    "archivo": nombre,
-                                    "tipo_doc": tipo_doc,
-                                    "log": log_pasos
-                                }
-                        except Exception as e_new_page:
-                            log_pasos.append(f"❌ Error en pestaña visor: {e_new_page}")
-                        finally:
-                            try:
-                                new_page.close()
-                            except:
-                                pass
+                            if new_page: new_page.close()
+                        except:
+                            pass
             else:
                 log_pasos.append("❌ No se encontró documento título+cédula ni factura de compra.")
                 
