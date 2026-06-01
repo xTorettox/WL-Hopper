@@ -611,7 +611,6 @@ if check_password():
             modo_pruebas = False
             if st.session_state.get("logged_user") == "fcendra":
                 modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True, disabled=is_exec)
-                modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True, disabled=is_exec)
                 
         with st.expander("⚙️ Configuración de Salida", expanded=not is_exec):
             nombre_excel = st.text_input("Nombre del Excel", value="Reporte_Hopper", disabled=is_exec)
