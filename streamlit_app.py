@@ -19,6 +19,21 @@ from supabase import create_client, Client
 from cryptography.fernet import Fernet
 from datetime import datetime, timedelta
 
+from sharepoint_config import STORAGE_STATE_PATH
+from security_guard import HopperSecurityGuard, KillSwitchException
+from auth_manager import SharePointAuthManager
+from sharepoint_scraper import SharePointHopperBot
+from lenor_scraper import LenorBot
+from pdf_utils import extraer_datos_titulo_o_cedula, extraer_marca_modelo_de_certificado
+from admin_view import render_kill_switch_banner
+
+# --- SISTEMA DE CONTROL DE ACCESO Y PERFILES (RBAC) ---
+from user_profiles import (
+    obtener_perfil,
+    tiene_permiso_documentacion_completa,
+    tiene_permiso_dashboard
+)
+
 # --- CONFIGURACIÓN BÚNKER DE SEGURIDAD Y BD ---
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -31,6 +46,9 @@ except Exception as e:
     st.error(f"Error cargando secrets: {e}")
     supabase = None
     cipher_suite = None
+
+security_guard = HopperSecurityGuard(supabase, cipher_suite)
+auth_manager = SharePointAuthManager(security_guard, cipher_suite, supabase)
 
 def encriptar(texto):
     if not texto or not cipher_suite: return ""
@@ -171,6 +189,8 @@ def check_password():
                     res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", st.session_state["logged_user"]).execute()
                     wl_creds = {}
                     bv_creds = {}
+                    sp_creds = {}
+                    lenor_creds = {}
                     if res.data:
                         for cred in res.data:
                             s_name = cred.get("sitio", "")
@@ -182,9 +202,15 @@ def check_password():
                                     wl_creds[u_dec] = p_dec
                                 elif s_name.startswith("BV_"):
                                     bv_creds[u_dec] = p_dec
+                                elif (s_name == "SHAREPOINT" or s_name.startswith("SP_")) and s_name not in ["SP_KILL_SWITCH", "SP_STORAGE_STATE"]:
+                                    sp_creds[u_dec] = p_dec
+                                elif s_name == "LENOR" or s_name.startswith("LENOR_"):
+                                    lenor_creds[u_dec] = p_dec
                     
                     st.session_state["wl_creds_dict"] = wl_creds
                     st.session_state["bv_creds_dict"] = bv_creds
+                    st.session_state["sp_creds_dict"] = sp_creds
+                    st.session_state["lenor_creds_dict"] = lenor_creds
                     
                     if wl_creds:
                         first_wl = list(wl_creds.keys())[0]
@@ -199,6 +225,21 @@ def check_password():
                         st.session_state["bv_pw"] = bv_creds[first_bv]
                     else:
                         st.session_state["bv_user"], st.session_state["bv_pw"] = "", ""
+
+                    if sp_creds:
+                        first_sp = list(sp_creds.keys())[0]
+                        st.session_state["sp_user"] = first_sp
+                        st.session_state["sp_pw"] = sp_creds[first_sp]
+                    else:
+                        st.session_state["sp_user"], st.session_state["sp_pw"] = "", ""
+
+                    if lenor_creds:
+                        first_lenor = list(lenor_creds.keys())[0]
+                        st.session_state["lenor_user"] = first_lenor
+                        st.session_state["lenor_pw"] = lenor_creds[first_lenor]
+                    else:
+                        st.session_state["lenor_user"] = "ingresosnqn@sullair.com.ar"
+                        st.session_state["lenor_pw"] = "Sullair2025"
                 except Exception as e:
                     print(f"Error fetching credentials: {e}")
         else:
@@ -327,17 +368,163 @@ if check_password():
                 st.write("🤖")
         with c2:
             st.markdown("""
-            **WL Hopper** es una app diseñada para optimizar la descarga de certificados desde los sitios de **Worklift** y **Bureau Veritas**.
+            **WL Hopper** es una app diseñada para optimizar la descarga de certificados e informes desde **Worklift**, **Bureau Veritas**, **Lenor** y **SharePoint**.
             
-            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para descargar PDFs en segundo plano.
+            Inspirada en una tarea repetitiva que no quería seguirlo siendo, esta herramienta usa bots de navegación para estructurar la información y descargar PDFs en segundo plano.
             """)
         
-        st.info("🚀 **Misión:** Automatizar y acelerar la tarea de descarga masiva de certificados e informes, y recuperar y estructurar la información de nuestros equipos desde los sitios web de Worklift y Bureau Veritas.")
-        
+        st.info("🚀 **Misión:** Automatizar y acelerar la descarga de certificados, informes técnicos y documentación oficial de maquinaria.")
         st.divider()
         st.caption("Desarrollado por Fede García Cendra - 2026")
 
+    @st.dialog("🔐 Gestión de Credenciales de Sitios", width="large")
+    def gestionar_credenciales_dialog():
+        st.markdown("##### Configuración Segura de Acceso a Sitios")
+        st.caption("Las credenciales se almacenan cifradas en la base de datos y solo se usan en tiempo de ejecución de los scrapers.")
+        
+        tab_wl, tab_bv, tab_lenor, tab_sp = st.tabs(["🏗️ Worklift", "🛡️ Bureau Veritas", "⚙️ Lenor", "📁 SharePoint (M365)"])
+        
+        wl_creds_dict = st.session_state.get("wl_creds_dict", {})
+        bv_creds_dict = st.session_state.get("bv_creds_dict", {})
+        lenor_creds_dict = st.session_state.get("lenor_creds_dict", {})
+        sp_creds_dict = st.session_state.get("sp_creds_dict", {})
+        
+        # --- TAB 1: WORKLIFT ---
+        with tab_wl:
+            wl_opciones = list(wl_creds_dict.keys())
+            sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."] if wl_opciones else ["➕ Nueva Credencial..."], key="dialog_sel_wl")
+            is_new_wl = (sel_wl == "➕ Nueva Credencial...")
+            wl_u = st.text_input("Usuario WL", value="" if is_new_wl else sel_wl, key="dialog_wl_u", disabled=not is_new_wl)
+            wl_p = st.text_input("Contraseña WL", value="" if is_new_wl else wl_creds_dict.get(sel_wl, ""), type="password", key="dialog_wl_p")
+            if st.button("💾 Guardar Credencial WL", key="dialog_btn_wl", use_container_width=True):
+                if not wl_u or not wl_p:
+                    st.error("Debes ingresar un usuario y contraseña.")
+                elif supabase:
+                    try:
+                        sitio_val = f"WL_{st.session_state.get('logged_user', '')}_{wl_u}"
+                        res_wl = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
+                        if res_wl.data:
+                            supabase.table("credenciales_sitios").update({"user_enc": encriptar(wl_u), "pass_enc": encriptar(wl_p)}).eq("sitio", sitio_val).execute()
+                        else:
+                            supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(wl_u), "pass_enc": encriptar(wl_p)}).execute()
+                        wl_creds_dict[wl_u] = wl_p
+                        st.session_state["wl_creds_dict"] = wl_creds_dict
+                        st.session_state["wl_user"] = wl_u
+                        st.session_state["wl_pw"] = wl_p
+                        st.success("Credencial de Worklift guardada exitosamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        # --- TAB 2: BUREAU VERITAS ---
+        with tab_bv:
+            bv_opciones = list(bv_creds_dict.keys())
+            sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."] if bv_opciones else ["➕ Nueva Credencial..."], key="dialog_sel_bv")
+            is_new_bv = (sel_bv == "➕ Nueva Credencial...")
+            bv_u = st.text_input("Usuario BV", value="" if is_new_bv else sel_bv, key="dialog_bv_u", disabled=not is_new_bv)
+            bv_p = st.text_input("Contraseña BV", value="" if is_new_bv else bv_creds_dict.get(sel_bv, ""), type="password", key="dialog_bv_p")
+            if st.button("💾 Guardar Credencial BV", key="dialog_btn_bv", use_container_width=True):
+                if not bv_u or not bv_p:
+                    st.error("Debes ingresar un usuario y contraseña.")
+                elif supabase:
+                    try:
+                        sitio_val = f"BV_{st.session_state.get('logged_user', '')}_{bv_u}"
+                        res_bv = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
+                        if res_bv.data:
+                            supabase.table("credenciales_sitios").update({"user_enc": encriptar(bv_u), "pass_enc": encriptar(bv_p)}).eq("sitio", sitio_val).execute()
+                        else:
+                            supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(bv_u), "pass_enc": encriptar(bv_p)}).execute()
+                        bv_creds_dict[bv_u] = bv_p
+                        st.session_state["bv_creds_dict"] = bv_creds_dict
+                        st.session_state["bv_user"] = bv_u
+                        st.session_state["bv_pw"] = bv_p
+                        st.success("Credencial de Bureau Veritas guardada exitosamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        # --- TAB 3: LENOR ---
+        with tab_lenor:
+            lenor_opciones = list(lenor_creds_dict.keys())
+            sel_lenor = st.selectbox("Perfil Lenor", lenor_opciones + ["➕ Nueva Credencial..."] if lenor_opciones else ["➕ Nueva Credencial..."], key="dialog_sel_lenor")
+            is_new_lenor = (sel_lenor == "➕ Nueva Credencial...")
+            def_lenor_u = st.session_state.get("lenor_user", "ingresosnqn@sullair.com.ar")
+            def_lenor_p = st.session_state.get("lenor_pw", "Sullair2025")
+            lenor_u = st.text_input("Usuario / Correo Lenor", value=def_lenor_u if is_new_lenor else sel_lenor, key="dialog_lenor_u")
+            lenor_p = st.text_input("Contraseña Lenor", value=def_lenor_p if is_new_lenor else lenor_creds_dict.get(sel_lenor, ""), type="password", key="dialog_lenor_p")
+            if st.button("💾 Guardar Credencial Lenor", key="dialog_btn_lenor", use_container_width=True):
+                if not lenor_u or not lenor_p:
+                    st.error("Debes ingresar un usuario y contraseña.")
+                elif supabase:
+                    try:
+                        sitio_val = f"LENOR_{st.session_state.get('logged_user', '')}_{lenor_u}"
+                        res_lenor = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
+                        if res_lenor.data:
+                            supabase.table("credenciales_sitios").update({"user_enc": encriptar(lenor_u), "pass_enc": encriptar(lenor_p)}).eq("sitio", sitio_val).execute()
+                        else:
+                            supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(lenor_u), "pass_enc": encriptar(lenor_p)}).execute()
+                        lenor_creds_dict[lenor_u] = lenor_p
+                        st.session_state["lenor_creds_dict"] = lenor_creds_dict
+                        st.session_state["lenor_user"] = lenor_u
+                        st.session_state["lenor_pw"] = lenor_p
+                        st.success("Credencial de Lenor guardada exitosamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        # --- TAB 4: SHAREPOINT (M365) ---
+        with tab_sp:
+            sp_opciones = list(sp_creds_dict.keys())
+            sel_sp = st.selectbox("Perfil SharePoint", sp_opciones + ["➕ Nueva Credencial..."] if sp_opciones else ["➕ Nueva Credencial..."], key="dialog_sel_sp")
+            is_new_sp = (sel_sp == "➕ Nueva Credencial...")
+            sp_u = st.text_input("Correo M365", value="" if is_new_sp else sel_sp, key="dialog_sp_u", disabled=not is_new_sp)
+            sp_p = st.text_input("Contraseña M365", value="" if is_new_sp else sp_creds_dict.get(sel_sp, ""), type="password", key="dialog_sp_p")
+            if st.button("💾 Guardar Credencial SharePoint", key="dialog_btn_sp", use_container_width=True):
+                if not sp_u or not sp_p:
+                    st.error("Debes ingresar tu correo y contraseña corporativa.")
+                elif supabase:
+                    try:
+                        sitio_val = f"SP_{st.session_state.get('logged_user', '')}_{sp_u}"
+                        res_sp = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
+                        if res_sp.data:
+                            supabase.table("credenciales_sitios").update({"user_enc": encriptar(sp_u), "pass_enc": encriptar(sp_p)}).eq("sitio", sitio_val).execute()
+                        else:
+                            supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(sp_u), "pass_enc": encriptar(sp_p)}).execute()
+                        sp_creds_dict[sp_u] = sp_p
+                        st.session_state["sp_creds_dict"] = sp_creds_dict
+                        st.session_state["sp_user"] = sp_u
+                        st.session_state["sp_pw"] = sp_p
+                        st.success("Credencial de SharePoint guardada exitosamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    # --- BARRA LATERAL (SIDEBAR) ---
     with st.sidebar:
+        st.markdown("### 👤 Perfil de Usuario")
+        usuario_actual = st.session_state.get("logged_user", "")
+        perfil_actual = obtener_perfil(usuario_actual)
+        st.markdown(f"**Usuario:** `{usuario_actual}`")
+        st.markdown(f"**Nombre:** {perfil_actual.get('nombre', 'Operador')}")
+        rol_badge = "🛡️ ADMIN" if perfil_actual.get("rol") == "ADMIN" else ("📋 INGRESOS" if perfil_actual.get("rol") == "INGRESOS" else "👤 ESTÁNDAR")
+        st.markdown(f"**Rol:** {rol_badge}")
+        
+        st.markdown("---")
+        st.markdown("### 🔑 Conexiones de Sitios")
+        wl_u = st.session_state.get("wl_user", "")
+        bv_u = st.session_state.get("bv_user", "")
+        lenor_u = st.session_state.get("lenor_user", "")
+        sp_u = st.session_state.get("sp_user", "")
+        
+        st.caption(f"{'🟢' if wl_u else '⚪'} Worklift: `{wl_u or 'No configurado'}`")
+        st.caption(f"{'🟢' if bv_u else '⚪'} Bureau Veritas: `{bv_u or 'No configurado'}`")
+        st.caption(f"{'🟢' if lenor_u else '⚪'} Lenor: `{lenor_u or 'ingresosnqn@sullair.com.ar'}`")
+        st.caption(f"{'🟢' if sp_u else '⚪'} SharePoint: `{sp_u or 'No configurado'}`")
+        
+        if st.button("🔐 Configurar Credenciales", use_container_width=True, disabled=st.session_state.get("ejecutando", False)):
+            gestionar_credenciales_dialog()
+            
+        st.markdown("---")
         st.markdown("### 🛠️ Opciones")
         st.button("Cerrar Sesión", on_click=lambda: st.session_state.clear(), use_container_width=True)
         if st.button("Acerca del Proyecto", use_container_width=True):
@@ -354,6 +541,8 @@ if check_password():
     if "ejecutando" not in st.session_state: st.session_state.ejecutando = False
     is_exec = st.session_state.ejecutando
 
+    # --- BANNER DE ALERTA CRÍTICA KILL SWITCH SHAREPOINT ---
+    render_kill_switch_banner(security_guard, st.session_state.get("logged_user", ""))
     
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
     c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
@@ -365,112 +554,26 @@ if check_password():
     st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px; margin-bottom: 25px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-# --- INTERFAZ DE CREDENCIALES (EXPANDER) ---
-    with st.expander("🔐 Credenciales", expanded=not is_exec):
-        st.write("Gestiona tus credenciales de Worklift y Bureau Veritas guardadas de forma cifrada. Las claves que almacenes van a quedar sujetas a este perfil.")
-        
-        wl_creds_dict = st.session_state.get("wl_creds_dict", {})
-        bv_creds_dict = st.session_state.get("bv_creds_dict", {})
-        
-        c_cred1, c_cred2 = st.columns(2)
-        
-        # --- COLUMNA 1: WORKLIFT ---
-        with c_cred1:
-            col_ico_wl, col_sel_wl = st.columns([1, 3])
-            
-            with col_ico_wl:
-                # El contenedor nativo hereda el tamaño fijo que le damos a st.image
-                with st.container(border=True):
-                    try:
-                        # Clavamos el ancho en 64px nativos para hacer el "cuadradito"
-                        st.image("img/WL-Logo.png", width=64)
-                    except:
-                        st.markdown("<h6 style='text-align: center; margin: 0;'>WL</h6>", unsafe_allow_html=True)
-            
-            with col_sel_wl:
-                wl_opciones = list(wl_creds_dict.keys())
-                if wl_opciones:
-                    sel_wl = st.selectbox("Perfil WL", wl_opciones + ["➕ Nueva Credencial..."], key="sel_wl_real", disabled=is_exec)
-                else:
-                    sel_empty_wl = st.selectbox("Perfil WL", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_wl_empty", disabled=is_exec)
-                    sel_wl = "➕ Nueva Credencial..." if sel_empty_wl == "➕ Nueva Credencial..." else ""
-            
-            is_new_wl = (sel_wl == "➕ Nueva Credencial...") or (not wl_opciones and sel_wl == "")
-            wl_u = st.text_input("Usuario WL", value="" if is_new_wl else sel_wl, key="inp_wl_u", disabled=is_exec or not is_new_wl)
-            wl_p = st.text_input("Contraseña WL", value="" if is_new_wl else wl_creds_dict.get(sel_wl, ""), type="password", key="inp_wl_p", disabled=is_exec)
-            
-            if st.button("💾 Guardar WL", use_container_width=True, disabled=is_exec):
-                if not wl_u or not wl_p:
-                    st.error("Debes ingresar un usuario y contraseña.")
-                elif supabase:
-                    try:
-                        sitio_val = f"WL_{st.session_state.get('logged_user', '')}_{wl_u}"
-                        res_wl = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
-                        if res_wl.data: supabase.table("credenciales_sitios").update({"user_enc": encriptar(wl_u), "pass_enc": encriptar(wl_p)}).eq("sitio", sitio_val).execute()
-                        else: supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(wl_u), "pass_enc": encriptar(wl_p)}).execute()
-                        wl_creds_dict[wl_u] = wl_p
-                        st.session_state["wl_creds_dict"] = wl_creds_dict
-                        st.success("Guardado en Worklift")
-                    except Exception as e: st.error(f"Error: {e}")
-
-        # --- COLUMNA 2: BUREAU VERITAS ---
-        with c_cred2:
-            col_ico_bv, col_sel_bv = st.columns([1, 3])
-            
-            with col_ico_bv:
-                # Al usar exactamente el mismo contenedor y el mismo width, quedan gemelos
-                with st.container(border=True):
-                    try:
-                        # Mismo ancho exacto de 64px
-                        st.image("img/BV-Logo.png", width=64)
-                    except:
-                        st.markdown("<h6 style='text-align: center; margin: 0;'>BV</h6>", unsafe_allow_html=True)
-            
-            with col_sel_bv:
-                bv_opciones = list(bv_creds_dict.keys())
-                if bv_opciones:
-                    sel_bv = st.selectbox("Perfil BV", bv_opciones + ["➕ Nueva Credencial..."], key="sel_bv_real", disabled=is_exec)
-                else:
-                    sel_empty_bv = st.selectbox("Perfil BV", ["No hay credenciales almacenadas", "➕ Nueva Credencial..."], key="sel_bv_empty", disabled=is_exec)
-                    sel_bv = "➕ Nueva Credencial..." if sel_empty_bv == "➕ Nueva Credencial..." else ""
-            
-            is_new_bv = (sel_bv == "➕ Nueva Credencial...") or (not bv_opciones and sel_bv == "")
-            bv_u = st.text_input("Usuario BV", value="" if is_new_bv else sel_bv, key="inp_bv_u", disabled=is_exec or not is_new_bv)
-            bv_p = st.text_input("Contraseña BV", value="" if is_new_bv else bv_creds_dict.get(sel_bv, ""), type="password", key="inp_bv_p", disabled=is_exec)
-            
-            if st.button("💾 Guardar BV", use_container_width=True, disabled=is_exec):
-                if not bv_u or not bv_p:
-                    st.error("Debes ingresar un usuario y contraseña.")
-                elif supabase:
-                    try:
-                        sitio_val = f"BV_{st.session_state.get('logged_user', '')}_{bv_u}"
-                        res_bv = supabase.table("credenciales_sitios").select("id").eq("sitio", sitio_val).execute()
-                        if res_bv.data: supabase.table("credenciales_sitios").update({"user_enc": encriptar(bv_u), "pass_enc": encriptar(bv_p)}).eq("sitio", sitio_val).execute()
-                        else: supabase.table("credenciales_sitios").insert({"usuario_app": st.session_state.get('logged_user', ''), "sitio": sitio_val, "user_enc": encriptar(bv_u), "pass_enc": encriptar(bv_p)}).execute()
-                        bv_creds_dict[bv_u] = bv_p
-                        st.session_state["bv_creds_dict"] = bv_creds_dict
-                        st.success("Guardado en Bureau Veritas")
-                    except Exception as e: st.error(f"Error: {e}")
-
-    # Fin box credenciales
-        
-        # Synchronize selection with session state for bot execution
-        st.session_state["wl_user"] = wl_u if is_new_wl else sel_wl
-        st.session_state["wl_pw"] = wl_p if is_new_wl else wl_creds_dict.get(sel_wl, "")
-        st.session_state["bv_user"] = bv_u if is_new_bv else sel_bv
-        st.session_state["bv_pw"] = bv_p if is_new_bv else bv_creds_dict.get(sel_bv, "")
-    
     col_left, col_right = st.columns([1, 1.2], gap="large")
     
     with col_left:
-        
         with st.container(border=True):
             c1, c2 = st.columns(2)
             bajar_cert = c1.checkbox("Descargar Certificados", value=True, disabled=is_exec)
             bajar_inf = c2.checkbox("Descargar Informes", value=False, disabled=is_exec)
+            buscar_lenor = st.checkbox("Buscar en Lenor (vía Serie/Chasis de Título)", value=True, disabled=is_exec, help="Consulta el sistema Lenor buscando por los últimos dígitos del serie/chasis y verifica el interno en el PDF.")
+            
+            # Control de Acceso por Perfil: Descarga de Documentación Completa
+            usuario_logeado = st.session_state.get("logged_user", "")
+            if tiene_permiso_documentacion_completa(usuario_logeado):
+                buscar_sp = st.checkbox("Descargar Documentación Completa (Título, Cédula, Seguros)", value=True, disabled=is_exec, help="Accede a BACK OFFICE Sullair Arg para compilar título, cédula, seguros y actas provisorias.")
+            else:
+                buscar_sp = False
+                st.caption("🔒 *Descarga de Título, Cédula y Seguros reservada para área de Ingresos y Administradores.*")
+                
             es_semestral = st.checkbox("Vencimiento Semestral (180 días)", help="Calcula una alerta extra a los 6 meses.", disabled=is_exec)
             modo_pruebas = False
-            if st.session_state.get("logged_user") == "fcendra":
+            if tiene_permiso_dashboard(usuario_logeado):
                 modo_pruebas = st.checkbox("🧪 Modo Pruebas (No inyecta métricas)", value=True, disabled=is_exec)
                 
         with st.expander("⚙️ Configuración de Salida", expanded=not is_exec):
@@ -614,12 +717,15 @@ if check_password():
         wl_pass = st.session_state.get("wl_pw", "")
         
         if not wl_usr or not wl_pass:
-            st.error("Faltan credenciales de Worklift. Selecciona o guarda una.")
+            st.error("Faltan credenciales de Worklift. Abrí '🔐 Configurar Credenciales' en el menú lateral para guardarlas.")
         else:
             # Almacenamos parámetros y disparamos ejecución diferida
             st.session_state.bajar_cert_val = bajar_cert
             st.session_state.bajar_inf_val = bajar_inf
+            st.session_state.buscar_lenor_val = buscar_lenor
+            st.session_state.buscar_sp_val = buscar_sp
             st.session_state.es_semestral_val = es_semestral
+            st.session_state.modo_pruebas_val = modo_pruebas
             st.session_state.nombre_excel_val = nombre_excel
             st.session_state.nombre_zip_val = nombre_zip
             st.session_state.texto_internos_val = texto_internos
@@ -631,7 +737,10 @@ if check_password():
         # Cargar parámetros almacenados
         bajar_cert = st.session_state.get("bajar_cert_val", True)
         bajar_inf = st.session_state.get("bajar_inf_val", False)
+        buscar_lenor = st.session_state.get("buscar_lenor_val", True)
+        buscar_sp = st.session_state.get("buscar_sp_val", False)
         es_semestral = st.session_state.get("es_semestral_val", False)
+        modo_pruebas = st.session_state.get("modo_pruebas_val", False)
         nombre_excel = st.session_state.get("nombre_excel_val", "Reporte_Hopper")
         nombre_zip = st.session_state.get("nombre_zip_val", "Certificados")
         texto_internos = st.session_state.get("texto_internos_val", "")
@@ -641,6 +750,8 @@ if check_password():
         wl_pass = st.session_state.get("wl_pw", "")
         bv_usr = st.session_state.get("bv_user", "")
         bv_pw = st.session_state.get("bv_pw", "")
+        lenor_usr = st.session_state.get("lenor_user", "ingresosnqn@sullair.com.ar")
+        lenor_pw = st.session_state.get("lenor_pw", "Sullair2025")
         
         try:
             ruta_temp = "descargas_temp"
@@ -655,6 +766,8 @@ if check_password():
                 "--- PARÁMETROS ---",
                 f"Descargar certificados: {si_no(bajar_cert)}",
                 f"Descargar informes de inspección: {si_no(bajar_inf)}",
+                f"Buscar en Lenor: {si_no(buscar_lenor)}",
+                f"Documentación completa (SharePoint): {si_no(buscar_sp)}",
                 f"Modo vencimiento semestral: {si_no(es_semestral)}",
                 "------------------",
                 "Iniciando conexión con Worklift..."
@@ -690,6 +803,39 @@ if check_password():
                             st.session_state.log_history[-1] = "🔐 Login exitoso en BV."
                         else:
                             st.session_state.log_history[-1] = f"❌ Falló conexión con BV: {error_bv_login}"
+
+                    # Conexión inicial a Lenor si corresponde
+                    lenor_bot = None
+                    exito_lenor_login = False
+                    if buscar_lenor:
+                        st.session_state.log_history.append("Iniciando conexión con Lenor...")
+                        render_terminal()
+                        lenor_bot = LenorBot(headless=True)
+                        exito_lenor_login, error_lenor_login = lenor_bot.iniciar(usuario=lenor_usr, clave=lenor_pw, pw_instance=bot.pw)
+                        if exito_lenor_login:
+                            st.session_state.log_history[-1] = "🔐 Login exitoso en Lenor."
+                        else:
+                            st.session_state.log_history[-1] = f"⚠️ Falló conexión con Lenor: {error_lenor_login}"
+                            lenor_bot.cerrar()
+                            lenor_bot = None
+                    
+                    # Conexión inicial a SharePoint si corresponde
+                    sp_bot = None
+                    if buscar_sp or (buscar_lenor and exito_lenor_login):
+                        is_locked, motivo_bloqueo = security_guard.is_locked()
+                        if is_locked:
+                            st.session_state.log_history.append(f"⛔ SharePoint BLOQUEADO por Kill Switch: {motivo_bloqueo}")
+                        else:
+                            st.session_state.log_history.append("Iniciando conexión con SharePoint (BACK OFFICE ARG)...")
+                            render_terminal()
+                            sp_bot = SharePointHopperBot(security_guard=security_guard, auth_manager=auth_manager, headless=True)
+                            exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'))
+                            if exito_sp:
+                                st.session_state.log_history[-1] = "🔐 Conexión exitosa a SharePoint (BACK OFFICE ARG)."
+                            else:
+                                st.session_state.log_history[-1] = f"⚠️ SharePoint no disponible: {error_sp}"
+                                sp_bot.cerrar()
+                                sp_bot = None
                     
                     render_terminal()
                     
@@ -700,6 +846,15 @@ if check_password():
                         res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
                         res['id'] = int_id
                         res['proveedor'] = "Worklift"
+                        res['marca'] = ""
+                        res['modelo'] = ""
+
+                        # Extraer marca y modelo del certificado de Worklift si se descargó
+                        for f_path in res.get("archivos_descargados", []):
+                            if "Certificado" in f_path:
+                                d_mm = extraer_marca_modelo_de_certificado(f_path)
+                                if d_mm.get("marca"): res["marca"] = d_mm["marca"]
+                                if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
                         
                         # --- AUDITORÍA DOBLE: BUREAU VERITAS ---
                         if bv_usr and bv_pw and exito_bv_login:
@@ -710,10 +865,7 @@ if check_password():
                                 bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
                                 bv_bot.cerrar()
                                 
-                                # Si BV encontró algo útil, comparamos con WL
                                 if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
-                                    
-                                    # Funciones helper para fechas
                                     def get_dt(d_str):
                                         if not d_str or d_str == "-": return datetime.min
                                         try: return datetime.strptime(d_str, "%d/%m/%Y")
@@ -721,28 +873,25 @@ if check_password():
                                         
                                     wl_v_dt = get_dt(res.get('venc_real') if 'venc_real' in res else res.get('venc'))
                                     bv_v_dt = get_dt(bv_res.get('venc'))
-                                    
                                     wl_i_dt = get_dt(res.get('insp'))
                                     bv_i_dt = get_dt(bv_res.get('insp'))
                                     
                                     hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                                    
                                     bv_tiene_cert_vigente = (bv_v_dt >= hoy)
                                     wl_tiene_cert_vigente = (wl_v_dt >= hoy)
                                     
                                     gana_bv_cert = False
                                     gana_bv_inf = False
                                     
-                                    # DECISIÓN CERTIFICADO: Gana la fecha de vencimiento más lejana si es válida
                                     if bv_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
                                         gana_bv_cert = True
+                                    elif not wl_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
+                                        gana_bv_cert = True
                                         
-                                    # DECISIÓN INFORME
                                     if gana_bv_cert:
                                         gana_bv_inf = True
-                                    else:
-                                        if bv_i_dt > wl_i_dt:
-                                            gana_bv_inf = True
+                                    elif bv_i_dt > wl_i_dt:
+                                        gana_bv_inf = True
                                             
                                     if gana_bv_cert or gana_bv_inf:
                                         res['proveedor'] = "Bureau Veritas"
@@ -752,11 +901,9 @@ if check_password():
                                         if gana_bv_inf:
                                             res['insp'] = bv_res.get('insp', res.get('insp'))
                                             
-                                        # Guardamos venc_real (el vencimiento anual de BV o el de WL)
                                         res['venc_real'] = bv_res.get('venc') if gana_bv_cert else res.get('venc_real', res.get('venc'))
                                         
                                         if es_semestral:
-                                            # Vencimiento semestral es 180 días desde la inspección ganadora
                                             i_dt = get_dt(res['insp'])
                                             if i_dt != datetime.min:
                                                 res['venc'] = (i_dt + timedelta(days=180)).strftime("%d/%m/%Y")
@@ -768,7 +915,6 @@ if check_password():
                                         
                                         # Recalcular días restantes para status
                                         dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
-                                        
                                         if dias_restantes > 30:
                                             res['status'] = "VIGENTE"
                                             res['color'] = "VERDE"
@@ -789,15 +935,15 @@ if check_password():
                                             obs_bv = bv_res.get('observaciones', '')
                                             if obs_bv and gana_bv_inf: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
                                             res['accion_final'] = "Coordinar recertificación urgente"
+
+                                        # Extraer marca y modelo del certificado BV
+                                        for f_path in bv_res.get("archivos_descargados", []):
+                                            if "Certificado" in f_path:
+                                                d_mm = extraer_marca_modelo_de_certificado(f_path)
+                                                if d_mm.get("marca"): res["marca"] = d_mm["marca"]
+                                                if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
                                             
-                                        res['log'] = [
-                                            f"📄 Último Informe de Inspección: {res['insp']} (BV)",
-                                            f"📅 Fecha vencimiento certificado: {res['venc']} (BV)"
-                                        ]
-                                        if dias_restantes <= 30:
-                                            res['log'].append(f"💡 Sugerencia: {res['accion_final']}")
-                                            
-                                        # ELIMINAR ARCHIVOS PERDEDORES (WORKLIFT)
+                                        # Eliminar archivos perdedores de WL
                                         archivos_wl = res.get("archivos_descargados", [])
                                         for f_path in archivos_wl:
                                             if os.path.exists(f_path):
@@ -816,7 +962,6 @@ if check_password():
                                                 if (es_bv_cert and not gana_bv_cert) or (es_bv_inf and not gana_bv_inf):
                                                     try: os.remove(f_path)
                                                     except: pass
-                                                    
                                     else:
                                         # Ganó WL. Borramos los que bajó BV
                                         archivos_bv = bv_res.get("archivos_descargados", [])
@@ -824,9 +969,135 @@ if check_password():
                                             if os.path.exists(f_path):
                                                 try: os.remove(f_path)
                                                 except: pass
+
+                        # --- BÚSQUEDA EN SHAREPOINT (TÍTULO, CÉDULA, CHASIS, SEGUROS) ---
+                        chasis_equipo = ""
+                        if sp_bot:
+                            st.session_state.log_history.append("Buscando en SharePoint (Título, Cédula, Seguros)...")
+                            render_terminal()
+                            sp_res = sp_bot.procesar_interno(int_id, ruta_temp)
+                            for sp_step in sp_res.get("log", []):
+                                st.session_state.log_history.append(f"  {sp_step}")
+                                
+                            chasis_equipo = sp_res.get("chasis", "")
+                            if sp_res.get("marca") and not res.get("marca"):
+                                res["marca"] = sp_res["marca"]
+                            if sp_res.get("modelo") and not res.get("modelo"):
+                                res["modelo"] = sp_res["modelo"]
+
+                            if buscar_sp:
+                                # Usuario habilitado que seleccionó descargar documentación completa
+                                if "archivos_descargados" not in res:
+                                    res["archivos_descargados"] = []
+                                for f_sp in sp_res.get("archivos_descargados", []):
+                                    if f_sp not in res["archivos_descargados"]:
+                                        res["archivos_descargados"].append(f_sp)
+                            else:
+                                # Solo se consultó SharePoint para obtener el Chasis para Lenor;
+                                # Se eliminan los archivos del disco para que el ZIP solo contenga certificados
+                                for f_sp in sp_res.get("archivos_descargados", []):
+                                    if os.path.exists(f_sp):
+                                        try: os.remove(f_sp)
+                                        except: pass
+
+                        # --- AUDITORÍA TRIPLE: LENOR GROUP (VÍA CHASIS/SERIE) ---
+                        if lenor_bot and exito_lenor_login and buscar_lenor:
+                            termino_lenor = chasis_equipo if chasis_equipo else int_id
+                            st.session_state.log_history.append(f"Consultando Lenor para {int_id} (chasis/serie: {termino_lenor})...")
+                            render_terminal()
+                            lenor_res = lenor_bot.buscar_equipo(
+                                interno=int_id,
+                                chasis_o_serie=termino_lenor,
+                                ruta_base=ruta_temp,
+                                bajar_cert=bajar_cert,
+                                bajar_inf=bajar_inf,
+                                prefijo_cert=prefijo_cert
+                            )
+                            for lenor_step in lenor_res.get("log", []):
+                                st.session_state.log_history.append(f"  {lenor_step}")
+
+                            if lenor_res.get("marca") and not res.get("marca"):
+                                res["marca"] = lenor_res["marca"]
+                            if lenor_res.get("modelo") and not res.get("modelo"):
+                                res["modelo"] = lenor_res["modelo"]
+
+                            if lenor_res.get("descargado") or "LENOR" in lenor_res.get("status", "") or lenor_res.get("status") == "Encontrado en Lenor":
+                                def get_dt(d_str):
+                                    if not d_str or d_str == "-": return datetime.min
+                                    try: return datetime.strptime(d_str, "%d/%m/%Y")
+                                    except: return datetime.min
+
+                                lenor_v_dt = get_dt(lenor_res.get("venc"))
+                                actual_v_dt = get_dt(res.get("venc_real") if "venc_real" in res else res.get("venc"))
+                                lenor_i_dt = get_dt(lenor_res.get("insp"))
+                                actual_i_dt = get_dt(res.get("insp"))
+
+                                hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                                gana_lenor_cert = (lenor_v_dt > actual_v_dt)
+                                gana_lenor_inf = (lenor_i_dt > actual_i_dt)
+                                if gana_lenor_cert:
+                                    gana_lenor_inf = True
+
+                                if gana_lenor_cert or gana_lenor_inf:
+                                    res["proveedor"] = "Lenor"
+                                    res["cert"] = lenor_res.get("cert", "NO") if gana_lenor_cert else res.get("cert", "NO")
+                                    res["inf"] = lenor_res.get("informe", "NO") if gana_lenor_inf else res.get("inf", "NO")
+                                    if gana_lenor_inf:
+                                        res["insp"] = lenor_res.get("insp", res.get("insp"))
+                                    res["venc_real"] = lenor_res.get("venc") if gana_lenor_cert else res.get("venc_real", res.get("venc"))
+
+                                    if es_semestral:
+                                        i_dt = get_dt(res["insp"])
+                                        if i_dt != datetime.min:
+                                            res["venc"] = (i_dt + timedelta(days=180)).strftime("%d/%m/%Y")
+                                        else:
+                                            res["venc"] = "-"
+                                    else:
+                                        if gana_lenor_cert:
+                                            res["venc"] = lenor_res.get("venc", res.get("venc"))
+
+                                    dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
+                                    if dias_restantes > 30:
+                                        res['status'] = "VIGENTE"
+                                        res['color'] = "VERDE"
+                                        res['obs_final'] = f"{dias_restantes} días de vigencia."
+                                        res['accion_final'] = "-"
+                                    elif 0 <= dias_restantes <= 30:
+                                        res['status'] = "PRÓXIMO A VENCER"
+                                        res['color'] = "AMARILLO"
+                                        res['obs_final'] = f"{dias_restantes} días de vigencia."
+                                        res['accion_final'] = "Coordinar recertificación"
+                                    else:
+                                        res['status'] = "VENCIDO"
+                                        res['color'] = "ROJO"
+                                        if es_semestral:
+                                            res['obs_final'] = f"Último certificado vencido en {res['venc']}." if res['venc'] != "-" else "Último certificado vencido."
+                                        else:
+                                            res['obs_final'] = "Último certificado vencido."
+                                        res['accion_final'] = "Coordinar recertificación urgente"
+
+                                    if lenor_res.get("marca"): res["marca"] = lenor_res["marca"]
+                                    if lenor_res.get("modelo"): res["modelo"] = lenor_res["modelo"]
+
+                                    # Eliminar archivos perdedores de Worklift o BV
+                                    for f_path in res.get("archivos_descargados", []):
+                                        if os.path.exists(f_path) and ("Certificado" in f_path or "Informe" in f_path) and ("Lenor" not in f_path):
+                                            try: os.remove(f_path)
+                                            except: pass
+
+                                    res["archivos_descargados"] = [f for f in res.get("archivos_descargados", []) if not (("Certificado" in f or "Informe" in f) and "Lenor" not in f)]
+                                    res["archivos_descargados"].extend(lenor_res.get("archivos_descargados", []))
+                                else:
+                                    # Ganó WL o BV, descartar PDFs de Lenor
+                                    for f_path in lenor_res.get("archivos_descargados", []):
+                                        if os.path.exists(f_path):
+                                            try: os.remove(f_path)
+                                            except: pass
                                 
                         # --- IMPRESIÓN DEL LOG REESTRUCTURADO ---
                         st.session_state.log_history.append(f"Proveedor: {res.get('proveedor', 'Worklift')}")
+                        if res.get("marca") or res.get("modelo"):
+                            st.session_state.log_history.append(f"Equipo: {res.get('marca', '-')} {res.get('modelo', '-')}".strip())
                         
                         desc_inf = " (descargado)" if res.get('inf') == "SI" else ""
                         st.session_state.log_history.append(f"Última Inspección: {res.get('insp')}{desc_inf}")
@@ -836,11 +1107,11 @@ if check_password():
                         st.session_state.log_history.append(f"Último Certificado: {res.get('venc_real', res.get('venc'))}{desc_cert}{status_tag}")
                         
                         # Cálculo de vigencia
-                        def get_dt(d_str):
+                        def get_dt_local(d_str):
                             if not d_str or d_str == "-": return datetime.min
                             try: return datetime.strptime(d_str, "%d/%m/%Y")
                             except: return datetime.min
-                        v_dt = get_dt(res.get('venc'))
+                        v_dt = get_dt_local(res.get('venc'))
                         hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
                         if v_dt != datetime.min:
                             dias = (v_dt - hoy).days
@@ -861,7 +1132,7 @@ if check_password():
                                 if log_line.strip().startswith("💡 Sugerencia:") and res.get('accion_final') != "-":
                                     continue
                                 st.session_state.log_history.append(f"  {log_line.strip()}")
-                                
+
                         res_lista.append(res)
                         
                         # Inyección de métricas (si no es prueba y no falló por completo)
@@ -872,6 +1143,10 @@ if check_password():
                         render_terminal()
         
                     bot.cerrar()
+                    if lenor_bot:
+                        lenor_bot.cerrar()
+                    if sp_bot:
+                        sp_bot.cerrar()
                     st.session_state.log_history.append("🔓 Sesiones cerradas correctamente.")
                     st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
                     st.session_state.res_lista = res_lista
@@ -883,14 +1158,13 @@ if check_password():
                     html = f"""<style>table {{ border-collapse: collapse; }} td {{ white-space: nowrap; text-align: center; vertical-align: middle; mso-number-format: "\\@"; padding: 5px 15px; }} th {{ white-space: nowrap; text-align: center; vertical-align: middle; padding: 10px 20px; }}</style>
                     <table id="hopperTable" width="100%" border="1" style="font-family: Calibri;">"""
                     if es_semestral:
-                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO SEMESTRAL</th><th>VENCIMIENTO REAL</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
+                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>MARCA</th><th>MODELO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO SEMESTRAL</th><th>VENCIMIENTO REAL</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
                     else:
-                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>CERTIFICADO</th><th>INFORME</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
+                        html += '<tr style="background-color: #008657; color: white; font-weight: bold;"><th>INTERNO</th><th>MARCA</th><th>MODELO</th><th>PROVEEDOR</th><th>ESTADO</th><th>ÚLTIMA INSPECCIÓN</th><th>VENCIMIENTO<br>ÚLTIMO CERTIFICADO</th><th>OBSERVACIONES</th><th>ACCIONES</th></tr>'
  
                     excel_data = []
                     for r in res_lista:
                         bg, tx, st_text = "#FFFFFF", "#000000", r['status'].upper()
-                        cert_val = r['cert']
                         color_code = r.get('color', '').upper()
                         if color_code == "VERDE": bg, tx = "#C6EFCE", "#006100"
                         elif color_code == "AMARILLO": bg, tx = "#FFEB9C", "#9C5700"
@@ -900,37 +1174,42 @@ if check_password():
                             elif "AMARILLO" in st_text or "PRÓXIMO" in st_text or "GESTIÓN" in st_text or "REINSPECCIONAR" in st_text: bg, tx = "#FFEB9C", "#9C5700"
                             elif "ROJO" in st_text or "VENCIDO" in st_text or "RECHAZADO" in st_text: bg, tx = "#FFC7CE", "#9C0006"
                         
-                        html += f'<tr><td>{r["id"]}</td><td>{r.get("proveedor", "Worklift")}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
+                        m_marca = r.get("marca") or "-"
+                        m_modelo = r.get("modelo") or "-"
+
+                        html += f'<tr><td>{r["id"]}</td><td>{m_marca}</td><td>{m_modelo}</td><td>{r.get("proveedor", "Worklift")}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                         if es_semestral:
                             html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td><td>{r.get("venc_real", "N/A")}</td>'
                         else:
                             html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td>'
-                        html += f'<td>{cert_val}</td><td>{r["inf"]}</td>'
                         html += f'<td style="text-align: left; max-width: 250px; white-space: normal;">{r.get("obs_final", "-")}</td>'
                         html += f'<td style="text-align: left; white-space: normal; padding-right: 30px;">{r.get("accion_final", "-")}</td></tr>'
                         
                         if es_semestral:
                             row_dict = {
-                                "INTERNO": r["id"], 
+                                "INTERNO": r["id"],
+                                "MARCA": m_marca,
+                                "MODELO": m_modelo,
                                 "PROVEEDOR": r.get("proveedor", "Worklift"), 
                                 "ESTADO": st_text, 
                                 "ÚLTIMA INSPECCIÓN": r["insp"], 
                                 "VENCIMIENTO SEMESTRAL": r["venc"],
-                                "VENCIMIENTO REAL": r.get("venc_real", "-")
+                                "VENCIMIENTO REAL": r.get("venc_real", "-"),
+                                "OBSERVACIONES": r.get("obs_final", "-"),
+                                "ACCIONES": r.get("accion_final", "-")
                             }
                         else:
                             row_dict = {
-                                "INTERNO": r["id"], 
+                                "INTERNO": r["id"],
+                                "MARCA": m_marca,
+                                "MODELO": m_modelo,
                                 "PROVEEDOR": r.get("proveedor", "Worklift"), 
                                 "ESTADO": st_text, 
                                 "ÚLTIMA INSPECCIÓN": r["insp"], 
-                                "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"]
+                                "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"],
+                                "OBSERVACIONES": r.get("obs_final", "-"),
+                                "ACCIONES": r.get("accion_final", "-")
                             }
-                            
-                        row_dict.update({
-                            "CERTIFICADO": cert_val, "INFORME": r["inf"], 
-                            "OBSERVACIONES": r.get("obs_final", "-"), "ACCIONES": r.get("accion_final", "-")
-                        })
                         excel_data.append(row_dict)
                         
                     html += "</table>"
@@ -945,6 +1224,16 @@ if check_password():
             st.session_state.log_history.append(f"❌ ERROR INESPERADO: {ex}")
             render_terminal()
         finally:
+            try:
+                if 'sp_bot' in locals() and sp_bot:
+                    sp_bot.cerrar()
+            except Exception:
+                pass
+            try:
+                if 'lenor_bot' in locals() and lenor_bot:
+                    lenor_bot.cerrar()
+            except Exception:
+                pass
             st.session_state.ejecutando = False
             st.rerun()
                 
@@ -974,12 +1263,14 @@ if check_password():
                 
                 if header_val == "ESTADO":
                     ancho_final = max(ancho_final, 22) # Más ancho
+                elif header_val == "MARCA":
+                    ancho_final = max(ancho_final, 16)
+                elif header_val == "MODELO":
+                    ancho_final = max(ancho_final, 18)
                 elif header_val == "OBSERVACIONES":
-                    ancho_final = 19.57
+                    ancho_final = 22
                 elif header_val == "ACCIONES":
-                    ancho_final = 27.43
-                elif header_val == "INFORME":
-                    ancho_final = 9.5
+                    ancho_final = 28
                 
                 worksheet.column_dimensions[col_letra].width = ancho_final
                 
