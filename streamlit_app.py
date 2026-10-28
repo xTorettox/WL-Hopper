@@ -24,7 +24,7 @@ from security_guard import HopperSecurityGuard, KillSwitchException
 from auth_manager import SharePointAuthManager
 from sharepoint_scraper import SharePointHopperBot
 from lenor_scraper import LenorBot
-from pdf_utils import extraer_datos_titulo_o_cedula, extraer_marca_modelo_de_certificado
+from pdf_utils import extraer_datos_titulo_o_cedula, extraer_marca_modelo_de_certificado, extraer_serie_de_certificado
 from admin_view import render_kill_switch_banner
 
 # --- SISTEMA DE CONTROL DE ACCESO Y PERFILES (RBAC) ---
@@ -226,10 +226,28 @@ def check_password():
                     else:
                         st.session_state["bv_user"], st.session_state["bv_pw"] = "", ""
 
+                    # Si el usuario no tiene credencial propia de SharePoint, cargar la corporativa o sesión persistente
+                    if not sp_creds:
+                        try:
+                            res_sp_corp = supabase.table("credenciales_sitios").select("*").in_("usuario_app", ["fcendra", "system_auth"]).execute()
+                            if res_sp_corp.data:
+                                for cred in res_sp_corp.data:
+                                    s_name = cred.get("sitio", "")
+                                    if (s_name == "SHAREPOINT" or s_name.startswith("SP_")) and s_name not in ["SP_KILL_SWITCH", "SP_STORAGE_STATE"]:
+                                        u_dec = desencriptar(cred.get("user_enc", ""))
+                                        p_dec = desencriptar(cred.get("pass_enc", ""))
+                                        if u_dec:
+                                            sp_creds[u_dec] = p_dec
+                        except Exception as e_sp:
+                            print(f"Error fetching corporate SP creds: {e_sp}")
+
                     if sp_creds:
                         first_sp = list(sp_creds.keys())[0]
                         st.session_state["sp_user"] = first_sp
                         st.session_state["sp_pw"] = sp_creds[first_sp]
+                    elif os.path.exists(STORAGE_STATE_PATH):
+                        st.session_state["sp_user"] = "Sesión Corporativa Persistente"
+                        st.session_state["sp_pw"] = "********"
                     else:
                         st.session_state["sp_user"], st.session_state["sp_pw"] = "", ""
 
@@ -474,6 +492,7 @@ if check_password():
 
         # --- TAB 4: SHAREPOINT (M365) ---
         with tab_sp:
+            st.info("🔐 **Sesión Corporativa Central:** SharePoint utiliza la autenticación persistente compartida para todo el equipo. No es obligatorio configurar una cuenta individual.")
             sp_opciones = list(sp_creds_dict.keys())
             sel_sp = st.selectbox("Perfil SharePoint", sp_opciones + ["➕ Nueva Credencial..."] if sp_opciones else ["➕ Nueva Credencial..."], key="dialog_sel_sp")
             is_new_sp = (sel_sp == "➕ Nueva Credencial...")
@@ -519,7 +538,7 @@ if check_password():
         st.caption(f"{'🟢' if wl_u else '⚪'} Worklift: `{wl_u or 'No configurado'}`")
         st.caption(f"{'🟢' if bv_u else '⚪'} Bureau Veritas: `{bv_u or 'No configurado'}`")
         st.caption(f"{'🟢' if lenor_u else '⚪'} Lenor: `{lenor_u or 'ingresosnqn@sullair.com.ar'}`")
-        st.caption(f"{'🟢' if sp_u else '⚪'} SharePoint: `{sp_u or 'No configurado'}`")
+        st.caption(f"{'🟢' if sp_u or os.path.exists(STORAGE_STATE_PATH) else '⚪'} SharePoint: `{sp_u or ('Sesión Corporativa Persistente' if os.path.exists(STORAGE_STATE_PATH) else 'No configurado')}`")
         
         if st.button("🔐 Configurar Credenciales", use_container_width=True, disabled=st.session_state.get("ejecutando", False)):
             gestionar_credenciales_dialog()
@@ -829,7 +848,7 @@ if check_password():
                             st.session_state.log_history.append("Iniciando conexión con SharePoint (BACK OFFICE ARG)...")
                             render_terminal()
                             sp_bot = SharePointHopperBot(security_guard=security_guard, auth_manager=auth_manager, headless=True)
-                            exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'))
+                            exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'), pw_instance=bot.pw)
                             if exito_sp:
                                 st.session_state.log_history[-1] = "🔐 Conexión exitosa a SharePoint (BACK OFFICE ARG)."
                             else:
@@ -1000,26 +1019,39 @@ if check_password():
                                         try: os.remove(f_sp)
                                         except: pass
 
+                        # Si el título no aportó chasis/serie, intentar extraerlo del certificado ya descargado de WL o BV
+                        if not chasis_equipo:
+                            for f_path in res.get("archivos_descargados", []):
+                                if "Certificado" in f_path:
+                                    s_extraida = extraer_serie_de_certificado(f_path)
+                                    if s_extraida:
+                                        chasis_equipo = s_extraida
+                                        st.session_state.log_history.append(f"  🔢 Número de serie extraído del certificado: '{chasis_equipo}'")
+                                        break
+
                         # --- AUDITORÍA TRIPLE: LENOR GROUP (VÍA CHASIS/SERIE) ---
                         if lenor_bot and exito_lenor_login and buscar_lenor:
-                            termino_lenor = chasis_equipo if chasis_equipo else int_id
-                            st.session_state.log_history.append(f"Consultando Lenor para {int_id} (chasis/serie: {termino_lenor})...")
-                            render_terminal()
-                            lenor_res = lenor_bot.buscar_equipo(
-                                interno=int_id,
-                                chasis_o_serie=termino_lenor,
-                                ruta_base=ruta_temp,
-                                bajar_cert=bajar_cert,
-                                bajar_inf=bajar_inf,
-                                prefijo_cert=prefijo_cert
-                            )
-                            for lenor_step in lenor_res.get("log", []):
-                                st.session_state.log_history.append(f"  {lenor_step}")
+                            if not chasis_equipo:
+                                st.session_state.log_history.append(f"ℹ️ {int_id}: Sin número de serie/chasis identificado. Se omite búsqueda en Lenor.")
+                                render_terminal()
+                            else:
+                                st.session_state.log_history.append(f"Consultando Lenor para {int_id} (serie/chasis: {chasis_equipo})...")
+                                render_terminal()
+                                lenor_res = lenor_bot.buscar_equipo(
+                                    interno=int_id,
+                                    chasis_o_serie=chasis_equipo,
+                                    ruta_base=ruta_temp,
+                                    bajar_cert=bajar_cert,
+                                    bajar_inf=bajar_inf,
+                                    prefijo_cert=prefijo_cert
+                                )
+                                for lenor_step in lenor_res.get("log", []):
+                                    st.session_state.log_history.append(f"  {lenor_step}")
 
-                            if lenor_res.get("marca") and not res.get("marca"):
-                                res["marca"] = lenor_res["marca"]
-                            if lenor_res.get("modelo") and not res.get("modelo"):
-                                res["modelo"] = lenor_res["modelo"]
+                                if lenor_res.get("marca") and not res.get("marca"):
+                                    res["marca"] = lenor_res["marca"]
+                                if lenor_res.get("modelo") and not res.get("modelo"):
+                                    res["modelo"] = lenor_res["modelo"]
 
                             if lenor_res.get("descargado") or "LENOR" in lenor_res.get("status", "") or lenor_res.get("status") == "Encontrado en Lenor":
                                 def get_dt(d_str):

@@ -3,6 +3,25 @@ import re
 import os
 import io
 
+def _configurar_tesseract():
+    try:
+        import pytesseract
+        rutas = [
+            os.path.expanduser(r'~\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'),
+            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+            '/usr/bin/tesseract',
+            '/usr/local/bin/tesseract'
+        ]
+        for r in rutas:
+            if os.path.exists(r):
+                pytesseract.pytesseract.tesseract_cmd = r
+                break
+    except Exception:
+        pass
+
+_configurar_tesseract()
+
 def extraer_texto_completo_pdf(ruta_pdf):
     """Extrae texto nativo o mediante OCR si el PDF es escaneado."""
     texto = ""
@@ -17,6 +36,7 @@ def extraer_texto_completo_pdf(ruta_pdf):
             try:
                 import pytesseract
                 from PIL import Image
+                _configurar_tesseract()
                 doc = fitz.open(ruta_pdf)
                 for page in doc:
                     pix = page.get_pixmap(dpi=150)
@@ -119,3 +139,15 @@ def extraer_marca_modelo_de_certificado(ruta_pdf):
         datos["modelo"] = m_modelo.group(1).strip()
 
     return datos
+
+def extraer_serie_de_certificado(ruta_pdf: str) -> str:
+    """
+    Intenta extraer el Número de Serie desde un certificado de inspección descargado (Worklift, BV o Lenor).
+    """
+    texto = extraer_texto_completo_pdf(ruta_pdf)
+    if not texto.strip():
+        return ""
+    m_serie = re.search(r'Serie\s*[:\s]+([A-Za-z0-9\-]+)', texto, re.IGNORECASE)
+    if m_serie:
+        return m_serie.group(1).strip()
+    return ""
