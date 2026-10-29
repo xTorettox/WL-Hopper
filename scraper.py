@@ -15,8 +15,18 @@ class WLHopperBot:
         self.page = None
         self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-    def iniciar(self, usuario, clave):
-        self.pw = sync_playwright().start()
+    def iniciar(self, usuario, clave, pw_instance=None):
+        usuario = (usuario or "").strip()
+        clave = (clave or "").strip()
+        if not usuario or not clave:
+            return False, "Usuario o contraseña de Worklift vacíos."
+
+        self.pw_started_here = False
+        if pw_instance:
+            self.pw = pw_instance
+        else:
+            self.pw = sync_playwright().start()
+            self.pw_started_here = True
         
         # --- LÓGICA DE DETECCIÓN DE NAVEGADOR PARA CLOUD ---
         rutas_posibles = [
@@ -47,30 +57,58 @@ class WLHopperBot:
                     args=["--no-sandbox", "--disable-dev-shm-usage"]
                 )
             except Exception as e:
-                print(f"Error crítico al lanzar navegador: {e}")
-                return False
+                msg = f"Error crítico al lanzar navegador: {e}"
+                print(msg)
+                return False, msg
             
-        self.context = self.browser.new_context()
-        self.page = self.context.new_page()
-        
         try:
-            self.page.goto("https://certifica.worklift.com.ar/login/", wait_until="load", timeout=60000)
+            self.context = self.browser.new_context()
+            self.page = self.context.new_page()
+            
+            self.page.goto("https://certifica.worklift.com.ar/login/", wait_until="domcontentloaded", timeout=60000)
+            self.page.wait_for_selector('input[type="email"]', timeout=20000)
             self.page.locator('input[type="email"]').fill(usuario)
             self.page.locator('input[type="password"]').fill(clave)
             self.page.click('button:has-text("Ingresar")')
             
-            # --- VALIDACIÓN REAL DE LOGIN ---
-            # Esperamos a ver el buscador de equipos que solo aparece si el login fue exitoso.
-            try:
-                # Si en 12 segundos no aparece el buscador, devolvemos False.
-                self.page.wait_for_selector('input[placeholder="Buscar"]', timeout=12000)
-                return True
-            except:
-                return False
+            # --- VALIDACIÓN ROBUSTA DE LOGIN ---
+            # Esperamos activamente hasta 25 segundos (útil en Streamlit Cloud con latencia alta)
+            for _ in range(25):
+                self.page.wait_for_timeout(1000)
+                
+                # 1. ¿Apareció el buscador del panel de equipos?
+                if self.page.locator('input[placeholder*="Buscar"]').count() > 0:
+                    return True, ""
+                
+                # 2. ¿Apareció una alerta de credenciales incorrectas en el sitio?
+                alertas = self.page.locator('.alert, [role="alert"]').all_inner_texts()
+                for a in alertas:
+                    a_limpia = a.strip()
+                    if a_limpia and ("no puede iniciar" in a_limpia.lower() or "credenciales" in a_limpia.lower() or "incorrect" in a_limpia.lower()):
+                        return False, f"Credenciales rechazadas por Worklift: '{a_limpia}'"
+                        
+                # 3. ¿El URL navegó fuera de la ruta de login?
+                if "/login" not in self.page.url:
+                    try:
+                        self.page.wait_for_selector('input[placeholder*="Buscar"]', timeout=8000)
+                        return True, ""
+                    except Exception:
+                        return True, ""
+                        
+            # Si pasaron los 25s y seguimos en la URL de login
+            alertas = self.page.locator('.alert, [role="alert"]').all_inner_texts()
+            if alertas:
+                return False, f"Error en Worklift: {'; '.join(a.strip() for a in alertas if a.strip())}"
+                
+            if "/login" in self.page.url:
+                return False, "Timeout esperando respuesta de Worklift (la página no avanzó desde /login/)."
+                
+            return True, ""
                 
         except Exception as e:
-            print(f"Error en Login: {e}")
-            return False
+            msg = f"Error en conexión con Worklift: {e}"
+            print(msg)
+            return False, msg
 
     def procesar_interno(self, interno, ruta_base, bajar_certificado, bajar_informe, es_semestral=False, prefijo_cert="Certificado"):
         try:
@@ -374,8 +412,18 @@ class WLHopperBot:
             return {"status": "Error", "insp": "-", "venc": "-", "venc_real": "-", "cert": "NO", "inf": "NO", "obs_final": str(e)[:30], "accion_final": "-", "color": "ROJO", "log": [f"❌ Error: {str(e)[:50]}"], "archivos_descargados": []}
         
     def cerrar(self):
-        if self.browser: self.browser.close()
-        if self.pw: self.pw.stop()
+        try:
+            if self.page: self.page.close()
+        except: pass
+        try:
+            if self.context: self.context.close()
+        except: pass
+        try:
+            if self.browser: self.browser.close()
+        except: pass
+        if getattr(self, "pw_started_here", False) and self.pw:
+            try: self.pw.stop()
+            except: pass
 
 class BureauVeritasBot:
     def __init__(self, headless=True):

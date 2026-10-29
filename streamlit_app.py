@@ -774,9 +774,12 @@ if check_password():
     if btn_run:
         wl_usr = st.session_state.get("wl_user", "")
         wl_pass = st.session_state.get("wl_pw", "")
+        bv_usr = st.session_state.get("bv_user", "")
+        bv_pw = st.session_state.get("bv_pw", "")
         
-        if not wl_usr or not wl_pass:
-            st.error("Faltan credenciales de Worklift. Abrí '🔐 Configurar Credenciales' en el menú lateral para guardarlas.")
+        tiene_servicio = bool((wl_usr and wl_pass) or (bv_usr and bv_pw) or buscar_lenor or buscar_sp)
+        if not tiene_servicio:
+            st.error("Debes tener configurada al menos una credencial (Worklift o Bureau Veritas) o activar la búsqueda en Lenor / SharePoint.")
         else:
             # Almacenamos parámetros y disparamos ejecución diferida
             st.session_state.bajar_cert_val = bajar_cert
@@ -843,92 +846,153 @@ if check_password():
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar en el cuadro de texto.")
                 render_terminal()
             else:
-                st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
-                render_terminal()
-                
-                bot = WLHopperBot(headless=True)
-                if bot.iniciar(wl_usr, wl_pass):
-                    st.session_state.log_history[-1] = "🔐 Login exitoso en Worklift."
-                    
-                    # Conexión inicial a Bureau Veritas si corresponde
-                    exito_bv_login = False
-                    if bv_usr and bv_pw:
-                        st.session_state.log_history.append("Iniciando conexión con BV...")
-                        render_terminal()
-                        bv_test_bot = BureauVeritasBot(headless=True)
-                        exito_bv_login, error_bv_login = bv_test_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
-                        bv_test_bot.cerrar()
-                        if exito_bv_login:
-                            st.session_state.log_history[-1] = "🔐 Login exitoso en BV."
-                        else:
-                            st.session_state.log_history[-1] = f"❌ Falló conexión con BV: {error_bv_login}"
-
-                    # Conexión inicial a Lenor si corresponde
-                    lenor_bot = None
-                    exito_lenor_login = False
-                    if buscar_lenor:
-                        st.session_state.log_history.append("Iniciando conexión con Lenor...")
-                        render_terminal()
-                        lenor_bot = LenorBot(headless=True)
-                        exito_lenor_login, error_lenor_login = lenor_bot.iniciar(usuario=lenor_usr, clave=lenor_pw, pw_instance=bot.pw)
-                        if exito_lenor_login:
-                            st.session_state.log_history[-1] = "🔐 Login exitoso en Lenor."
-                        else:
-                            st.session_state.log_history[-1] = f"⚠️ Falló conexión con Lenor: {error_lenor_login}"
-                            lenor_bot.cerrar()
-                            lenor_bot = None
-                    
-                    # Conexión inicial a SharePoint si corresponde
-                    sp_bot = None
-                    if buscar_sp or (buscar_lenor and exito_lenor_login):
-                        is_locked, motivo_bloqueo = security_guard.is_locked()
-                        if is_locked:
-                            st.session_state.log_history.append(f"⛔ SharePoint BLOQUEADO por Kill Switch: {motivo_bloqueo}")
-                        else:
-                            st.session_state.log_history.append("Iniciando conexión con SharePoint (BACK OFFICE ARG)...")
-                            render_terminal()
-                            sp_bot = SharePointHopperBot(security_guard=security_guard, auth_manager=auth_manager, headless=True)
-                            exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'), pw_instance=bot.pw)
-                            if exito_sp:
-                                st.session_state.log_history[-1] = "🔐 Conexión exitosa a SharePoint (BACK OFFICE ARG)."
-                            else:
-                                st.session_state.log_history[-1] = f"⚠️ SharePoint no disponible: {error_sp}"
-                                sp_bot.cerrar()
-                                sp_bot = None
-                    
+                # --- 1. CONEXIÓN A WORKLIFT (SI HAY CREDENCIALES) ---
+                bot = None
+                exito_wl_login = False
+                error_wl = ""
+                if wl_usr and wl_pass:
+                    st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
                     render_terminal()
-                    
+                    bot = WLHopperBot(headless=True)
+                    exito_wl_login, error_wl = bot.iniciar(wl_usr, wl_pass)
+                    if exito_wl_login:
+                        st.session_state.log_history[-1] = "🔐 Login exitoso en Worklift."
+                    else:
+                        st.session_state.log_history[-1] = f"⚠️ Worklift no disponible: {error_wl}"
+                        if bot:
+                            bot.cerrar()
+                            bot = None
+                else:
+                    st.session_state.log_history.append("ℹ️ Sin credenciales de Worklift (se omitirá la búsqueda en Worklift).")
+                render_terminal()
+
+                pw_shared = bot.pw if (bot and exito_wl_login) else None
+
+                # --- 2. CONEXIÓN A BUREAU VERITAS ---
+                exito_bv_login = False
+                if bv_usr and bv_pw:
+                    st.session_state.log_history.append("Iniciando conexión con BV...")
+                    render_terminal()
+                    bv_test_bot = BureauVeritasBot(headless=True)
+                    exito_bv_login, error_bv_login = bv_test_bot.iniciar(bv_usr, bv_pw, pw_instance=pw_shared)
+                    bv_test_bot.cerrar()
+                    if exito_bv_login:
+                        st.session_state.log_history[-1] = "🔐 Login exitoso en BV."
+                    else:
+                        st.session_state.log_history[-1] = f"⚠️ BV no disponible: {error_bv_login}"
+                    render_terminal()
+
+                # --- 3. CONEXIÓN A LENOR ---
+                lenor_bot = None
+                exito_lenor_login = False
+                if buscar_lenor:
+                    st.session_state.log_history.append("Iniciando conexión con Lenor...")
+                    render_terminal()
+                    lenor_bot = LenorBot(headless=True)
+                    exito_lenor_login, error_lenor_login = lenor_bot.iniciar(usuario=lenor_usr, clave=lenor_pw, pw_instance=pw_shared)
+                    if exito_lenor_login:
+                        st.session_state.log_history[-1] = "🔐 Login exitoso en Lenor."
+                    else:
+                        st.session_state.log_history[-1] = f"⚠️ Falló conexión con Lenor: {error_lenor_login}"
+                        lenor_bot.cerrar()
+                        lenor_bot = None
+                    render_terminal()
+
+                # --- 4. CONEXIÓN A SHAREPOINT ---
+                sp_bot = None
+                if buscar_sp or (buscar_lenor and exito_lenor_login):
+                    is_locked, motivo_bloqueo = security_guard.is_locked()
+                    if is_locked:
+                        st.session_state.log_history.append(f"⛔ SharePoint BLOQUEADO por Kill Switch: {motivo_bloqueo}")
+                    else:
+                        st.session_state.log_history.append("Iniciando conexión con SharePoint (BACK OFFICE ARG)...")
+                        render_terminal()
+                        sp_bot = SharePointHopperBot(security_guard=security_guard, auth_manager=auth_manager, headless=True)
+                        exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'), pw_instance=pw_shared)
+                        if exito_sp:
+                            st.session_state.log_history[-1] = "🔐 Conexión exitosa a SharePoint (BACK OFFICE ARG)."
+                        else:
+                            st.session_state.log_history[-1] = f"⚠️ SharePoint no disponible: {error_sp}"
+                            sp_bot.cerrar()
+                            sp_bot = None
+                    render_terminal()
+
+                # --- 5. VALIDACIÓN DE SERVICIOS DISPONIBLES ---
+                if not exito_wl_login and not exito_bv_login and not exito_lenor_login and not sp_bot:
+                    st.session_state.log_history.append("❌ ERROR: Ninguno de los servicios (Worklift, BV, Lenor, SharePoint) está disponible.")
+                    render_terminal()
+                    st.error("No se pudo iniciar sesión en ningún sistema. Verificá las credenciales o el estado de los sitios.")
+                else:
                     res_lista = []
                     for int_id in lista:
                         st.session_state.log_history.append(f"<br>--- Procesando {int_id} ---")
                         render_terminal()
-                        res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
-                        res['id'] = int_id
-                        res['proveedor'] = "Worklift"
-                        res['marca'] = ""
-                        res['modelo'] = ""
+                        
+                        if exito_wl_login and bot:
+                            res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
+                            res['id'] = int_id
+                            res['proveedor'] = "Worklift"
+                            res['marca'] = ""
+                            res['modelo'] = ""
 
-                        # Extraer marca y modelo del certificado de Worklift si se descargó
-                        for f_path in res.get("archivos_descargados", []):
-                            if "Certificado" in f_path:
-                                d_mm = extraer_marca_modelo_de_certificado(f_path)
-                                if d_mm.get("marca"): res["marca"] = d_mm["marca"]
-                                if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                            # Extraer marca y modelo del certificado de Worklift si se descargó
+                            for f_path in res.get("archivos_descargados", []):
+                                if "Certificado" in f_path:
+                                    d_mm = extraer_marca_modelo_de_certificado(f_path)
+                                    if d_mm.get("marca"): res["marca"] = d_mm["marca"]
+                                    if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                        else:
+                            res = {
+                                "id": int_id,
+                                "status": "No consultado (WL no disp.)" if error_wl else "No consultado",
+                                "insp": "-",
+                                "venc": "-",
+                                "venc_real": "-",
+                                "cert": "NO",
+                                "inf": "NO",
+                                "obs_final": f"Worklift no disponible: {error_wl}" if error_wl else "Worklift no configurado",
+                                "accion_final": "-",
+                                "color": "ROJO",
+                                "proveedor": "-",
+                                "marca": "",
+                                "modelo": "",
+                                "archivos_descargados": [],
+                                "log": []
+                            }
                         
                         # --- AUDITORÍA DOBLE: BUREAU VERITAS ---
                         if bv_usr and bv_pw and exito_bv_login:
                             bv_bot = BureauVeritasBot(headless=True)
-                            exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=bot.pw)
+                            exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=pw_shared)
                             
                             if exito_bv:
                                 bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
                                 bv_bot.cerrar()
                                 
                                 if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
-                                    def get_dt(d_str):
-                                        if not d_str or d_str == "-": return datetime.min
-                                        try: return datetime.strptime(d_str, "%d/%m/%Y")
-                                        except: return datetime.min
+                                    if not exito_wl_login or res.get('status') in ["No se pudo encontrar", "Error", "No consultado (WL no disp.)", "No consultado"]:
+                                        res['proveedor'] = "Bureau Veritas"
+                                        res['status'] = bv_res.get('status', 'Encontrado en BV')
+                                        res['insp'] = bv_res.get('insp', '-')
+                                        res['venc'] = bv_res.get('venc', '-')
+                                        res['venc_real'] = bv_res.get('venc', '-')
+                                        res['cert'] = bv_res.get('cert', 'NO')
+                                        res['inf'] = bv_res.get('informe', 'NO')
+                                        res['obs_final'] = bv_res.get('observaciones', '-')
+                                        res['accion_final'] = "-"
+                                        res['color'] = "VERDE" if bv_res.get('descargado') else "AMARILLO"
+                                        if "archivos_descargados" not in res: res["archivos_descargados"] = []
+                                        res["archivos_descargados"].extend(bv_res.get("archivos_descargados", []))
+                                        for f_path in bv_res.get("archivos_descargados", []):
+                                            if "Certificado" in f_path:
+                                                d_mm = extraer_marca_modelo_de_certificado(f_path)
+                                                if d_mm.get("marca"): res["marca"] = d_mm["marca"]
+                                                if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                                    else:
+                                        def get_dt(d_str):
+                                            if not d_str or d_str == "-": return datetime.min
+                                            try: return datetime.strptime(d_str, "%d/%m/%Y")
+                                            except: return datetime.min
                                         
                                     wl_v_dt = get_dt(res.get('venc_real') if 'venc_real' in res else res.get('venc'))
                                     bv_v_dt = get_dt(bv_res.get('venc'))
@@ -1214,7 +1278,8 @@ if check_password():
                             
                         render_terminal()
         
-                    bot.cerrar()
+                    if bot:
+                        bot.cerrar()
                     if lenor_bot:
                         lenor_bot.cerrar()
                     if sp_bot:
@@ -1249,7 +1314,7 @@ if check_password():
                         m_marca = r.get("marca") or "-"
                         m_modelo = r.get("modelo") or "-"
 
-                        html += f'<tr><td>{r["id"]}</td><td>{m_marca}</td><td>{m_modelo}</td><td>{r.get("proveedor", "Worklift")}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
+                        html += f'<tr><td>{r["id"]}</td><td>{m_marca}</td><td>{m_modelo}</td><td>{r.get("proveedor", "-")}</td><td style="background-color: {bg}; color: {tx}; font-weight: bold;">{st_text}</td>'
                         if es_semestral:
                             html += f'<td>{r.get("insp", "N/A")}</td><td>{r.get("venc", "N/A")}</td><td>{r.get("venc_real", "N/A")}</td>'
                         else:
@@ -1262,7 +1327,7 @@ if check_password():
                                 "INTERNO": r["id"],
                                 "MARCA": m_marca,
                                 "MODELO": m_modelo,
-                                "PROVEEDOR": r.get("proveedor", "Worklift"), 
+                                "PROVEEDOR": r.get("proveedor", "-"), 
                                 "ESTADO": st_text, 
                                 "ÚLTIMA INSPECCIÓN": r["insp"], 
                                 "VENCIMIENTO SEMESTRAL": r["venc"],
@@ -1275,7 +1340,7 @@ if check_password():
                                 "INTERNO": r["id"],
                                 "MARCA": m_marca,
                                 "MODELO": m_modelo,
-                                "PROVEEDOR": r.get("proveedor", "Worklift"), 
+                                "PROVEEDOR": r.get("proveedor", "-"), 
                                 "ESTADO": st_text, 
                                 "ÚLTIMA INSPECCIÓN": r["insp"], 
                                 "VENCIMIENTO ÚLTIMO CERTIFICADO": r["venc"],
@@ -1288,14 +1353,15 @@ if check_password():
                     st.session_state.html_excel = html.replace("\n", "")
                     st.session_state.df_excel = pd.DataFrame(excel_data)
                     st.rerun()
-                else:
-                    st.session_state.log_history.append("❌ ERROR: Credenciales de Worklift incorrectas.")
-                    render_terminal()
-                    st.error("No se pudo iniciar sesión. Verificá tu usuario y contraseña de Worklift.")
         except Exception as ex:
             st.session_state.log_history.append(f"❌ ERROR INESPERADO: {ex}")
             render_terminal()
         finally:
+            try:
+                if 'bot' in locals() and bot:
+                    bot.cerrar()
+            except Exception:
+                pass
             try:
                 if 'sp_bot' in locals() and sp_bot:
                     sp_bot.cerrar()
