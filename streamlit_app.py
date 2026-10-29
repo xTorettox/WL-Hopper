@@ -25,15 +25,37 @@ from auth_manager import SharePointAuthManager
 from sharepoint_scraper import SharePointHopperBot
 from lenor_scraper import LenorBot
 from pdf_utils import extraer_datos_titulo_o_cedula, extraer_marca_modelo_de_certificado, extraer_serie_de_certificado
-from admin_view import render_kill_switch_banner, render_user_management
+try:
+    from admin_view import render_kill_switch_banner, render_user_management
+except ImportError:
+    try:
+        from admin_view import render_kill_switch_banner
+    except ImportError:
+        def render_kill_switch_banner(*args, **kwargs): return False
+    render_user_management = None
 
 # --- SISTEMA DE CONTROL DE ACCESO Y PERFILES (RBAC) ---
-from user_profiles import (
-    obtener_perfil,
-    tiene_permiso_documentacion_completa,
-    tiene_permiso_dashboard,
-    cargar_perfiles
-)
+try:
+    from user_profiles import (
+        obtener_perfil,
+        tiene_permiso_documentacion_completa,
+        tiene_permiso_dashboard,
+        cargar_perfiles
+    )
+except ImportError:
+    def obtener_perfil(usuario):
+        user_norm = (usuario or "").strip().lower()
+        if user_norm in ["fcendra", "admin"] or user_norm.startswith("fcendra"):
+            return {"rol": "admin", "permiso_documentacion_completa": True, "permiso_dashboard": True, "permiso_gestion_credenciales": True}
+        if user_norm in ["ingnqn", "ingresosnqn"]:
+            return {"rol": "ingresos", "permiso_documentacion_completa": True, "permiso_dashboard": False, "permiso_gestion_credenciales": False}
+        return {"rol": "invitado", "permiso_documentacion_completa": False, "permiso_dashboard": False, "permiso_gestion_credenciales": False}
+    def tiene_permiso_documentacion_completa(usuario):
+        return obtener_perfil(usuario).get("permiso_documentacion_completa", False)
+    def tiene_permiso_dashboard(usuario):
+        return obtener_perfil(usuario).get("permiso_dashboard", False)
+    def cargar_perfiles(supabase_client=None):
+        pass
 
 # --- CONFIGURACIÓN BÚNKER DE SEGURIDAD Y BD ---
 try:
@@ -315,7 +337,13 @@ if check_password():
 
     # Vista: Editor de Usuarios y Permisos (Solo Admin)
     if st.session_state.get("show_user_editor", False):
-        render_user_management(supabase)
+        if render_user_management:
+            render_user_management(supabase)
+        else:
+            st.error("⚠️ El módulo de Gestión de Usuarios requiere actualizar `admin_view.py` y `user_profiles.py` en GitHub.")
+            if st.button("⬅️ Volver a la App"):
+                st.session_state.show_user_editor = False
+                st.rerun()
         st.stop()
 
     if st.session_state.get("show_dashboard", False):

@@ -440,7 +440,7 @@ class BureauVeritasBot:
             return False, str(e)
 
     def procesar_interno(self, interno, ruta_base, bajar_cert=True, bajar_inf=False, prefijo_cert=""):
-        res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False, "insp": "-", "venc": "-", "observaciones": "", "informe": "NO", "log": []}
+        res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False, "insp": "-", "venc": "-", "observaciones": "", "informe": "NO", "log": [], "archivos_descargados": []}
         log_pasos = []
         try:
             log_pasos.append(f"🔍 Iniciando búsqueda del interno '{interno}' en Bureau Veritas...")
@@ -448,9 +448,20 @@ class BureauVeritasBot:
             self.page.fill('input#ctl00_ContentPlaceHolder1_txtNroBuscado', interno)
             self.page.click('input#ctl00_ContentPlaceHolder1_btnBusca')
 
-            # Esperamos a que la tabla se dibuje o se actualice
-            self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=12000)
+            # Esperamos a que la tabla se dibuje si hay registros
+            hay_tabla = False
+            try:
+                self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=4000)
+                hay_tabla = True
+            except Exception:
+                pass
             
+            if not hay_tabla:
+                log_pasos.append(f"❌ No se hallaron registros en Bureau Veritas para el interno '{interno}'.")
+                res["status"] = "No encontrado en BV"
+                res["log"] = log_pasos
+                return res
+
             # Recuperamos todas las filas
             rows = self.page.locator("table#ctl00_ContentPlaceHolder1_gvInformes tr")
             row_count = rows.count()
@@ -540,11 +551,11 @@ class BureauVeritasBot:
                     # Volvemos a buscar el interno para recargar la grilla limpia y descargar el certificado
                     log_pasos.append("🔄 Volviendo a buscar el equipo para descargar el certificado...")
                     try:
-                        self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx")
+                        self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx", timeout=20000)
                         self.page.check('input#ctl00_ContentPlaceHolder1_RBOpciones_1')
                         self.page.fill('input#ctl00_ContentPlaceHolder1_txtNroBuscado', interno)
                         self.page.click('input#ctl00_ContentPlaceHolder1_btnBusca')
-                        self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=12000)
+                        self.page.wait_for_selector('table#ctl00_ContentPlaceHolder1_gvInformes', timeout=8000)
                         
                         # Re-localizar la fila
                         rows_rec = self.page.locator("table#ctl00_ContentPlaceHolder1_gvInformes tr")
@@ -571,18 +582,15 @@ class BureauVeritasBot:
                             if boton_pdf.count() > 0:
                                 log_pasos.append("📜 Botón de Certificado PDF disponible. Descargando...")
                                 try:
-                                    # Atrapamos el evento de respuesta de red para conocer la URL exacta y sus parámetros
                                     with self.page.expect_response(lambda r: "Prepara_PDF.aspx" in r.url, timeout=20000) as response_info:
                                         boton_pdf.click()
                                     
                                     response = response_info.value
                                     pdf_url = response.url
                                     
-                                    # Recuperamos las cookies del contexto del navegador activo
                                     cookies = {c['name']: c['value'] for c in self.context.cookies()}
                                     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
                                     
-                                    # Descargamos directamente el archivo binario utilizando requests con la misma sesión
                                     r = requests.get(pdf_url, cookies=cookies, headers=headers, timeout=25)
                                     if r.status_code == 200:
                                         file_path = os.path.join(ruta_base, f"{prefijo}{interno}_Certificado_Vence_{venc_format}.pdf")
@@ -607,12 +615,15 @@ class BureauVeritasBot:
                 res["status"] = "VIGENTE (BV)" if res["descargado"] else "Encontrado en BV"
             else:
                 log_pasos.append("❌ No se encontraron registros de datos en la tabla de BV.")
-            
-            # Volvemos a la sección de búsqueda para el siguiente interno
-            self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx")
         except Exception as e:
-            log_pasos.append(f"❌ Error crítico en el scraper de BV: {e}")
-            print(f"Error procesando {interno} en BV: {e}")
+            log_pasos.append(f"❌ Error en búsqueda de BV: {e}")
+        finally:
+            try:
+                # Volvemos a la sección de búsqueda limpia para el siguiente interno
+                if self.page:
+                    self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx", timeout=20000)
+            except Exception:
+                pass
             
         res["archivos_descargados"] = archivos_bv if 'archivos_bv' in locals() else []
         res["log"] = log_pasos
