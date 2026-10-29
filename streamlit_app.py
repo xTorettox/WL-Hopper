@@ -25,13 +25,14 @@ from auth_manager import SharePointAuthManager
 from sharepoint_scraper import SharePointHopperBot
 from lenor_scraper import LenorBot
 from pdf_utils import extraer_datos_titulo_o_cedula, extraer_marca_modelo_de_certificado, extraer_serie_de_certificado
-from admin_view import render_kill_switch_banner
+from admin_view import render_kill_switch_banner, render_user_management
 
 # --- SISTEMA DE CONTROL DE ACCESO Y PERFILES (RBAC) ---
 from user_profiles import (
     obtener_perfil,
     tiene_permiso_documentacion_completa,
-    tiene_permiso_dashboard
+    tiene_permiso_dashboard,
+    cargar_perfiles
 )
 
 # --- CONFIGURACIÓN BÚNKER DE SEGURIDAD Y BD ---
@@ -49,6 +50,7 @@ except Exception as e:
 
 security_guard = HopperSecurityGuard(supabase, cipher_suite)
 auth_manager = SharePointAuthManager(security_guard, cipher_suite, supabase)
+cargar_perfiles(supabase)
 
 def encriptar(texto):
     if not texto or not cipher_suite: return ""
@@ -298,13 +300,23 @@ if check_password():
         </script>
     """, height=0)
 
-    # --- ADMIN DASHBOARD (SIDEBAR) ---
-    if st.session_state.get("logged_user") == "fcendra" and supabase:
+    # --- ADMIN DASHBOARD Y GESTIÓN DE USUARIOS (SIDEBAR) ---
+    if st.session_state.get("logged_user") == "fcendra":
         with st.sidebar:
             st.markdown("### ⚙️ Panel de Admin")
-            if st.button("📊 Abrir Dashboard", use_container_width=True):
-                st.session_state.show_dashboard = True
+            if st.button("👥 Gestión de Usuarios", use_container_width=True):
+                st.session_state.show_user_editor = True
+                st.session_state.show_dashboard = False
                 st.rerun()
+            if supabase and st.button("📊 Abrir Dashboard", use_container_width=True):
+                st.session_state.show_dashboard = True
+                st.session_state.show_user_editor = False
+                st.rerun()
+
+    # Vista: Editor de Usuarios y Permisos (Solo Admin)
+    if st.session_state.get("show_user_editor", False):
+        render_user_management(supabase)
+        st.stop()
 
     if st.session_state.get("show_dashboard", False):
         st.title("📊 Dashboard de Métricas - WL Hopper")
