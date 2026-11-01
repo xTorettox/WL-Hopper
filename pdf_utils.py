@@ -22,6 +22,16 @@ def _configurar_tesseract():
 
 _configurar_tesseract()
 
+# Lista de marcas conocidas de maquinaria pesada e industrial para validación
+MARCAS_CONOCIDAS = {
+    "TOYOTA", "MANITOU", "KOMATSU", "JLG", "CATERPILLAR", "CAT",
+    "BOBCAT", "SULLAIR", "GENIE", "HYSTER", "YALE", "NISSAN",
+    "MITSUBISHI", "CASE", "NEW HOLLAND", "JOHN DEERE", "HAULOTTE",
+    "LINDE", "CLARK", "TCM", "DOOSAN", "HELI", "HANGCHA", "HYUNDAI",
+    "VOLVO", "JCB", "LIEBHERR", "GROVE", "TEREX", "TADANO", "SNORKEL",
+    "SKYJACK", "DINGLI", "XCMG", "SANY", "LIUGONG", "LONKING", "KALMAR"
+}
+
 def extraer_texto_completo_pdf(ruta_pdf):
     """Extrae texto nativo o mediante OCR si el PDF es escaneado."""
     texto = ""
@@ -81,7 +91,8 @@ def analizar_informe_local(ruta_pdf):
 def extraer_datos_titulo_o_cedula(ruta_pdf):
     """
     Extrae Número de Chasis (Serie), Marca y Modelo de un documento oficial
-    de Título de la Maquinaria o Cédula.
+    de Título de la Maquinaria, Cédula MAVI o Factura de Compra.
+    Diferencia estrictamente 'Mca. Chasis' (Marca) de 'Nro. Chasis' (Número real).
     """
     datos = {"chasis": "", "marca": "", "modelo": "", "tipo": ""}
     texto = extraer_texto_completo_pdf(ruta_pdf)
@@ -89,35 +100,63 @@ def extraer_datos_titulo_o_cedula(ruta_pdf):
         return datos
 
     # 1. Extracción de Chasis / Serie
-    # Ejemplos: "Nro. Chasis: KMTWA096LPA056772", "Chasis: 12345", "Nro. Serie: ..."
-    m_chasis = re.search(r'Nro\.?\s*Chasis\s*[:\s]+([A-Z0-9]+)', texto, re.IGNORECASE)
-    if not m_chasis:
-        m_chasis = re.search(r'Chasis\s*[:\s]+([A-Z0-9]+)', texto, re.IGNORECASE)
-    if not m_chasis:
-        m_chasis = re.search(r'Nro\.?\s*Serie\s*[:\s]+([A-Z0-9]+)', texto, re.IGNORECASE)
-    if not m_chasis:
-        m_chasis = re.search(r'Serie\s*[:\s]+([A-Z0-9]+)', texto, re.IGNORECASE)
+    # En títulos y cédulas DNRPA/MAVI existen dos campos diferentes:
+    #   - "Mca. Chasis: TOYOTA" -> Marca del chasis (NO es el número de serie).
+    #   - "Nro. Chasis: 608FD25-74043" -> Número del chasis (ES el número de serie).
+    patrones_chasis = [
+        # 1.1 Variantes explícitas de Nro. Chasis / N° Chasis / Nº Chasis / No. Chasis / Número de Chasis
+        r'(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)\s*(?:de\s*)?Chasis\s*[:\s]+([A-Za-z0-9\-]+)',
+        # 1.2 Variantes explícitas de Nro. Serie / N° Serie / Nº Serie / Número de Serie
+        r'(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)\s*(?:de\s*)?Serie\s*[:\s]+([A-Za-z0-9\-]+)',
+        # 1.3 Chasis: (con lookbehind negativo para asegurar que NO esté precedido por Mca. o Marca)
+        r'(?<!Mca\.\s)(?<!Mca\.)(?<!Mca\s)(?<!Marca\s)(?<!Mca)(?<!Marca)\bChasis\s*(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)?\s*[:\s]+([A-Za-z0-9\-]+)',
+        # 1.4 Serie: (con lookbehind negativo)
+        r'(?<!Mca\.\s)(?<!Mca\.)(?<!Mca\s)(?<!Marca\s)\bSerie\s*(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)?\s*[:\s]+([A-Za-z0-9\-]+)',
+        # 1.5 VIN o Bastidor
+        r'(?:VIN|Bastidor|Cuadro)\s*[:\s]+([A-Za-z0-9\-]+)'
+    ]
 
-    if m_chasis:
-        datos["chasis"] = m_chasis.group(1).strip()
+    for pat in patrones_chasis:
+        for m in re.finditer(pat, texto, re.IGNORECASE):
+            val = m.group(1).strip(" ,;.:-_")
+            # Validación estricta:
+            # - Debe tener al menos 3 caracteres
+            # - Debe contener al menos un dígito
+            # - NO debe ser una marca conocida (ej: "TOYOTA", "KOMATSU")
+            if len(val) >= 3 and any(c.isdigit() for c in val) and val.upper() not in MARCAS_CONOCIDAS:
+                datos["chasis"] = val
+                break
+        if datos["chasis"]:
+            break
 
     # 2. Extracción de Marca
-    # Ejemplo: "Marca: 717-KOMATSU" -> "KOMATSU", "Marca: \nKOMATSU"
-    m_marca = re.search(r'Marca\s*[:\s]+(?:\d+[-–]\s*)?([^\n\r]+)', texto, re.IGNORECASE)
+    # Ejemplo: "Marca: 130-TOYOTA" -> "TOYOTA", "Marca: \nKOMATSU", "Mca. Chasis: TOYOTA"
+    m_marca = re.search(r'(?:^|[^\w])Marca\s*[:\s]+(?:\d+[-–]\s*)?([^\n\r,;]+)', texto, re.IGNORECASE)
+    if not m_marca:
+        m_marca = re.search(r'Mca\.?\s*(?:Chasis|Motor)?\s*[:\s]+([^\n\r,;]+)', texto, re.IGNORECASE)
     if m_marca:
-        datos["marca"] = m_marca.group(1).strip()
+        val_m = m_marca.group(1).strip(" ,;.:-_")
+        val_m = re.sub(r'^\d{3,4}[-–]\s*', '', val_m)
+        val_m = re.split(r'\s{2,}', val_m)[0].strip(" ,;.:-_")
+        datos["marca"] = val_m
 
     # 3. Extracción de Modelo
-    # Ejemplo: "Modelo: 385-WA500-6" -> "WA500-6"
-    m_modelo = re.search(r'Modelo\s*[:\s]+(?:\d+[-–]\s*)?([^\n\r]+)', texto, re.IGNORECASE)
+    # Ejemplo: "Modelo: 652-62-8FD25" -> "62-8FD25"
+    m_modelo = re.search(r'Modelo\s*[:\s]+([^\n\r,;]+)', texto, re.IGNORECASE)
     if m_modelo:
-        datos["modelo"] = m_modelo.group(1).strip()
+        val_mod = m_modelo.group(1).strip(" ,;.:-_")
+        val_mod = re.sub(r'^\d{3,4}[-–]\s*', '', val_mod)
+        val_mod = re.split(r'\s{2,}', val_mod)[0].strip(" ,;.:-_")
+        datos["modelo"] = val_mod
 
     # 4. Extracción de Tipo de Maquinaria
-    # Ejemplo: "Tipo: 38-CARGADORA" -> "CARGADORA"
-    m_tipo = re.search(r'Tipo\s*[:\s]+(?:\d+[-–]\s*)?([^\n\r]+)', texto, re.IGNORECASE)
+    # Ejemplo: "Tipo: 37-AUTOELEVADORA" -> "AUTOELEVADORA"
+    m_tipo = re.search(r'Tipo\s*[:\s]+([^\n\r,;]+)', texto, re.IGNORECASE)
     if m_tipo:
-        datos["tipo"] = m_tipo.group(1).strip()
+        val_t = m_tipo.group(1).strip(" ,;.:-_")
+        val_t = re.sub(r'^\d{3,4}[-–]\s*', '', val_t)
+        val_t = re.split(r'\s{2,}', val_t)[0].strip(" ,;.:-_")
+        datos["tipo"] = val_t
 
     return datos
 
@@ -130,24 +169,34 @@ def extraer_marca_modelo_de_certificado(ruta_pdf):
     if not texto.strip():
         return datos
 
-    m_marca = re.search(r'Marca\s*[:\s]+([^\n\r]+)', texto, re.IGNORECASE)
+    m_marca = re.search(r'Marca\s*[:\s]+([^\n\r,;]+)', texto, re.IGNORECASE)
     if m_marca:
-        datos["marca"] = m_marca.group(1).strip()
+        datos["marca"] = re.split(r'\s{2,}', m_marca.group(1))[0].strip(" ,;.:-_")
 
-    m_modelo = re.search(r'Modelo\s*[:\s]+([^\n\r]+)', texto, re.IGNORECASE)
+    m_modelo = re.search(r'Modelo\s*[:\s]+([^\n\r,;]+)', texto, re.IGNORECASE)
     if m_modelo:
-        datos["modelo"] = m_modelo.group(1).strip()
+        datos["modelo"] = re.split(r'\s{2,}', m_modelo.group(1))[0].strip(" ,;.:-_")
 
     return datos
 
 def extraer_serie_de_certificado(ruta_pdf: str) -> str:
     """
     Intenta extraer el Número de Serie desde un certificado de inspección descargado (Worklift, BV o Lenor).
+    Valida que no sea un nombre de marca y contenga dígitos reales.
     """
     texto = extraer_texto_completo_pdf(ruta_pdf)
     if not texto.strip():
         return ""
-    m_serie = re.search(r'Serie\s*[:\s]+([A-Za-z0-9\-]+)', texto, re.IGNORECASE)
-    if m_serie:
-        return m_serie.group(1).strip()
+
+    patrones_serie = [
+        r'(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)?\s*Serie\s*[:\s]+([A-Za-z0-9\-]+)',
+        r'(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)?\s*Chasis\s*[:\s]+([A-Za-z0-9\-]+)',
+        r'N[uú]mero\s+de\s+Serie\s*[:\s]+([A-Za-z0-9\-]+)',
+        r'Serie/Chasis\s*[:\s]+([A-Za-z0-9\-]+)'
+    ]
+    for pat in patrones_serie:
+        for m in re.finditer(pat, texto, re.IGNORECASE):
+            val = m.group(1).strip(" ,;.:-_")
+            if len(val) >= 3 and any(c.isdigit() for c in val) and val.upper() not in MARCAS_CONOCIDAS:
+                return val
     return ""
