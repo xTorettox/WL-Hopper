@@ -6,6 +6,53 @@ from datetime import datetime, timedelta
 from utils import analizar_fecha, calcular_vencimiento_semestral
 from pdf_utils import analizar_informe_local
 
+# --- PARÁMETROS DE AHORRO DE MEMORIA EXTREMO (STREAMLIT CLOUD 1GB RAM) ---
+CHROMIUM_LOW_MEM_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-breakpad",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-ipc-flooding-protection",
+    "--disable-renderer-backgrounding",
+    "--metrics-recording-only",
+    "--mute-audio",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--renderer-process-limit=2",
+    "--js-flags=--max-old-space-size=128",  # Limita el heap de JS a 128MB
+]
+
+def lanzar_navegador_compartido(pw, headless=True):
+    """
+    Lanza una única instancia global de Chromium optimizada para entornos
+    con recursos limitados (Streamlit Cloud ~1GB RAM).
+    """
+    rutas_posibles = [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/lib/chromium/chromium",
+        "/usr/bin/google-chrome"
+    ]
+    exec_path = None
+    for r in rutas_posibles:
+        if os.path.exists(r):
+            exec_path = r
+            break
+
+    launch_kwargs = {
+        "headless": headless,
+        "args": CHROMIUM_LOW_MEM_ARGS
+    }
+    if exec_path:
+        launch_kwargs["executable_path"] = exec_path
+
+    return pw.chromium.launch(**launch_kwargs)
+
 class WLHopperBot:
     def __init__(self, headless=True):
         self.headless = headless
@@ -14,8 +61,10 @@ class WLHopperBot:
         self.context = None
         self.page = None
         self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        self.pw_started_here = False
+        self.browser_started_here = False
 
-    def iniciar(self, usuario, clave, pw_instance=None):
+    def iniciar(self, usuario, clave, pw_instance=None, browser_instance=None):
         usuario = (usuario or "").strip()
         clave = (clave or "").strip()
         if not usuario or not clave:
@@ -27,35 +76,14 @@ class WLHopperBot:
         else:
             self.pw = sync_playwright().start()
             self.pw_started_here = True
-        
-        # --- LÓGICA DE DETECCIÓN DE NAVEGADOR PARA CLOUD ---
-        rutas_posibles = [
-            "/usr/bin/chromium",
-            "/usr/bin/chromium-browser",
-            "/usr/lib/chromium/chromium",
-            "/usr/bin/google-chrome"
-        ]
-        
-        self.browser = None
-        for ruta in rutas_posibles:
-            if os.path.exists(ruta):
-                try:
-                    self.browser = self.pw.chromium.launch(
-                        executable_path=ruta,
-                        headless=self.headless,
-                        args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
-                    )
-                    break
-                except:
-                    continue
-        
-        # Si no encuentra rutas manuales, intenta el lanzamiento estándar
-        if not self.browser:
+
+        self.browser_started_here = False
+        if browser_instance:
+            self.browser = browser_instance
+        else:
             try:
-                self.browser = self.pw.chromium.launch(
-                    headless=self.headless,
-                    args=["--no-sandbox", "--disable-dev-shm-usage"]
-                )
+                self.browser = lanzar_navegador_compartido(self.pw, headless=self.headless)
+                self.browser_started_here = True
             except Exception as e:
                 msg = f"Error crítico al lanzar navegador: {e}"
                 print(msg)
@@ -413,17 +441,25 @@ class WLHopperBot:
         
     def cerrar(self):
         try:
-            if self.page: self.page.close()
-        except: pass
+            if self.page:
+                self.page.close()
+                self.page = None
+        except Exception: pass
         try:
-            if self.context: self.context.close()
-        except: pass
-        try:
-            if self.browser: self.browser.close()
-        except: pass
+            if self.context:
+                self.context.close()
+                self.context = None
+        except Exception: pass
+        if getattr(self, "browser_started_here", False) and self.browser:
+            try:
+                self.browser.close()
+                self.browser = None
+            except Exception: pass
         if getattr(self, "pw_started_here", False) and self.pw:
-            try: self.pw.stop()
-            except: pass
+            try:
+                self.pw.stop()
+                self.pw = None
+            except Exception: pass
 
 class BureauVeritasBot:
     def __init__(self, headless=True):
@@ -432,8 +468,10 @@ class BureauVeritasBot:
         self.browser = None
         self.context = None
         self.page = None
+        self.pw_started_here = False
+        self.browser_started_here = False
 
-    def iniciar(self, usuario, clave, pw_instance=None):
+    def iniciar(self, usuario, clave, pw_instance=None, browser_instance=None):
         try:
             self.pw_started_here = False
             if pw_instance:
@@ -441,34 +479,14 @@ class BureauVeritasBot:
             else:
                 self.pw = sync_playwright().start()
                 self.pw_started_here = True
-            
-            # --- LÓGICA DE DETECCIÓN DE NAVEGADOR PARA CLOUD ---
-            rutas_posibles = [
-                "/usr/bin/chromium",
-                "/usr/bin/chromium-browser",
-                "/usr/lib/chromium/chromium",
-                "/usr/bin/google-chrome"
-            ]
-            
-            self.browser = None
-            for ruta in rutas_posibles:
-                if os.path.exists(ruta):
-                    try:
-                        self.browser = self.pw.chromium.launch(
-                            executable_path=ruta,
-                            headless=self.headless,
-                            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"]
-                        )
-                        break
-                    except:
-                        continue
-            
-            if not self.browser:
-                self.browser = self.pw.chromium.launch(
-                    headless=self.headless,
-                    args=["--disable-extensions", "--no-sandbox", "--disable-dev-shm-usage"]
-                )
-                
+
+            self.browser_started_here = False
+            if browser_instance:
+                self.browser = browser_instance
+            else:
+                self.browser = lanzar_navegador_compartido(self.pw, headless=self.headless)
+                self.browser_started_here = True
+
             self.context = self.browser.new_context(
                 accept_downloads=True,
                 extra_http_headers={"Content-Disposition": "attachment"}
@@ -491,6 +509,14 @@ class BureauVeritasBot:
         res = {"status": "No encontrado en BV", "cert": "NO", "descargado": False, "insp": "-", "venc": "-", "observaciones": "", "informe": "NO", "log": [], "archivos_descargados": []}
         log_pasos = []
         try:
+            if not self.page or self.page.is_closed():
+                log_pasos.append("⚠️ Página de BV no disponible.")
+                res["log"] = log_pasos
+                return res
+
+            if "BuscaEQ.aspx" not in self.page.url:
+                self.page.goto("https://iip.bureauveritas.com.ar/BuscaEQ.aspx", timeout=20000)
+
             log_pasos.append(f"🔍 Iniciando búsqueda del interno '{interno}' en Bureau Veritas...")
             self.page.check('input#ctl00_ContentPlaceHolder1_RBOpciones_1')
             self.page.fill('input#ctl00_ContentPlaceHolder1_txtNroBuscado', interno)
@@ -678,6 +704,23 @@ class BureauVeritasBot:
         return res
 
     def cerrar(self):
-        if self.browser: self.browser.close()
+        try:
+            if self.page:
+                self.page.close()
+                self.page = None
+        except Exception: pass
+        try:
+            if self.context:
+                self.context.close()
+                self.context = None
+        except Exception: pass
+        if getattr(self, "browser_started_here", False) and self.browser:
+            try:
+                self.browser.close()
+                self.browser = None
+            except Exception: pass
         if getattr(self, "pw_started_here", False) and self.pw:
-            self.pw.stop()
+            try:
+                self.pw.stop()
+                self.pw = None
+            except Exception: pass

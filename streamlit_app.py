@@ -4,7 +4,9 @@ import shutil
 import pandas as pd
 import zipfile
 from io import BytesIO
-from scraper import WLHopperBot, BureauVeritasBot
+import gc
+from scraper import WLHopperBot, BureauVeritasBot, lanzar_navegador_compartido
+from playwright.sync_api import sync_playwright
 from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimiento_semestral, asegurar_carpeta
 import streamlit.components.v1 as components
 import pytesseract
@@ -846,15 +848,25 @@ if check_password():
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar en el cuadro de texto.")
                 render_terminal()
             else:
+                # --- LANZAMIENTO DEL MOTOR CHROMIUM COMPARTIDO (OPTIMIZACIÓN STREAMLIT CLOUD 1GB RAM) ---
+                pw_shared = None
+                browser_shared = None
+                try:
+                    pw_shared = sync_playwright().start()
+                    browser_shared = lanzar_navegador_compartido(pw_shared, headless=True)
+                except Exception as e_pw:
+                    st.session_state.log_history.append(f"❌ Error lanzando motor Chromium: {e_pw}")
+                    render_terminal()
+
                 # --- 1. CONEXIÓN A WORKLIFT (SI HAY CREDENCIALES) ---
                 bot = None
                 exito_wl_login = False
                 error_wl = ""
-                if wl_usr and wl_pass:
+                if wl_usr and wl_pass and browser_shared:
                     st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
                     render_terminal()
                     bot = WLHopperBot(headless=True)
-                    exito_wl_login, error_wl = bot.iniciar(wl_usr, wl_pass)
+                    exito_wl_login, error_wl = bot.iniciar(wl_usr, wl_pass, pw_instance=pw_shared, browser_instance=browser_shared)
                     if exito_wl_login:
                         st.session_state.log_history[-1] = "🔐 Login exitoso en Worklift."
                     else:
@@ -866,41 +878,41 @@ if check_password():
                     st.session_state.log_history.append("ℹ️ Sin credenciales de Worklift (se omitirá la búsqueda en Worklift).")
                 render_terminal()
 
-                pw_shared = bot.pw if (bot and exito_wl_login) else None
-
-                # --- 2. CONEXIÓN A BUREAU VERITAS ---
+                # --- 2. CONEXIÓN PERSISTENTE A BUREAU VERITAS ---
+                bv_bot = None
                 exito_bv_login = False
-                if bv_usr and bv_pw:
+                if bv_usr and bv_pw and browser_shared:
                     st.session_state.log_history.append("Iniciando conexión con BV...")
                     render_terminal()
-                    bv_test_bot = BureauVeritasBot(headless=True)
-                    exito_bv_login, error_bv_login = bv_test_bot.iniciar(bv_usr, bv_pw, pw_instance=pw_shared)
-                    bv_test_bot.cerrar()
+                    bv_bot = BureauVeritasBot(headless=True)
+                    exito_bv_login, error_bv_login = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=pw_shared, browser_instance=browser_shared)
                     if exito_bv_login:
-                        st.session_state.log_history[-1] = "🔐 Login exitoso en BV."
+                        st.session_state.log_history[-1] = "🔐 Login exitoso en BV (sesión única activa)."
                     else:
                         st.session_state.log_history[-1] = f"⚠️ BV no disponible: {error_bv_login}"
+                        bv_bot.cerrar()
+                        bv_bot = None
                     render_terminal()
 
-                # --- 3. CONEXIÓN A LENOR ---
+                # --- 3. CONEXIÓN A LENOR (LOGIN Y LIBERACIÓN DE MEMORIA) ---
                 lenor_bot = None
                 exito_lenor_login = False
-                if buscar_lenor:
+                if buscar_lenor and browser_shared:
                     st.session_state.log_history.append("Iniciando conexión con Lenor...")
                     render_terminal()
                     lenor_bot = LenorBot(headless=True)
-                    exito_lenor_login, error_lenor_login = lenor_bot.iniciar(usuario=lenor_usr, clave=lenor_pw, pw_instance=pw_shared)
+                    exito_lenor_login, error_lenor_login = lenor_bot.iniciar(usuario=lenor_usr, clave=lenor_pw, pw_instance=pw_shared, browser_instance=browser_shared)
                     if exito_lenor_login:
-                        st.session_state.log_history[-1] = "🔐 Login exitoso en Lenor."
+                        st.session_state.log_history[-1] = "🔐 Login exitoso en Lenor (sesión REST lista, memoria liberada)."
                     else:
                         st.session_state.log_history[-1] = f"⚠️ Falló conexión con Lenor: {error_lenor_login}"
                         lenor_bot.cerrar()
                         lenor_bot = None
                     render_terminal()
 
-                # --- 4. CONEXIÓN A SHAREPOINT ---
+                # --- 4. CONEXIÓN A SHAREPOINT (LOGIN Y LIBERACIÓN DE MEMORIA) ---
                 sp_bot = None
-                if buscar_sp or (buscar_lenor and exito_lenor_login):
+                if (buscar_sp or (buscar_lenor and exito_lenor_login)) and browser_shared:
                     is_locked, motivo_bloqueo = security_guard.is_locked()
                     if is_locked:
                         st.session_state.log_history.append(f"⛔ SharePoint BLOQUEADO por Kill Switch: {motivo_bloqueo}")
@@ -908,9 +920,9 @@ if check_password():
                         st.session_state.log_history.append("Iniciando conexión con SharePoint (BACK OFFICE ARG)...")
                         render_terminal()
                         sp_bot = SharePointHopperBot(security_guard=security_guard, auth_manager=auth_manager, headless=True)
-                        exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'), pw_instance=pw_shared)
+                        exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'), pw_instance=pw_shared, browser_instance=browser_shared)
                         if exito_sp:
-                            st.session_state.log_history[-1] = "🔐 Conexión exitosa a SharePoint (BACK OFFICE ARG)."
+                            st.session_state.log_history[-1] = "🔐 Conexión exitosa a SharePoint (sesión REST lista, memoria liberada)."
                         else:
                             st.session_state.log_history[-1] = f"⚠️ SharePoint no disponible: {error_sp}"
                             sp_bot.cerrar()
@@ -961,137 +973,132 @@ if check_password():
                             }
                         
                         # --- AUDITORÍA DOBLE: BUREAU VERITAS ---
-                        if bv_usr and bv_pw and exito_bv_login:
-                            bv_bot = BureauVeritasBot(headless=True)
-                            exito_bv, error_bv = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=pw_shared)
+                        if bv_bot and exito_bv_login:
+                            bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
                             
-                            if exito_bv:
-                                bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
-                                bv_bot.cerrar()
+                            if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
+                                if not exito_wl_login or res.get('status') in ["No se pudo encontrar", "Error", "No consultado (WL no disp.)", "No consultado"]:
+                                    res['proveedor'] = "Bureau Veritas"
+                                    res['status'] = bv_res.get('status', 'Encontrado en BV')
+                                    res['insp'] = bv_res.get('insp', '-')
+                                    res['venc'] = bv_res.get('venc', '-')
+                                    res['venc_real'] = bv_res.get('venc', '-')
+                                    res['cert'] = bv_res.get('cert', 'NO')
+                                    res['inf'] = bv_res.get('informe', 'NO')
+                                    res['obs_final'] = bv_res.get('observaciones', '-')
+                                    res['accion_final'] = "-"
+                                    res['color'] = "VERDE" if bv_res.get('descargado') else "AMARILLO"
+                                    if "archivos_descargados" not in res: res["archivos_descargados"] = []
+                                    res["archivos_descargados"].extend(bv_res.get("archivos_descargados", []))
+                                    for f_path in bv_res.get("archivos_descargados", []):
+                                        if "Certificado" in f_path:
+                                            d_mm = extraer_marca_modelo_de_certificado(f_path)
+                                            if d_mm.get("marca"): res["marca"] = d_mm["marca"]
+                                            if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                                else:
+                                    def get_dt(d_str):
+                                        if not d_str or d_str == "-": return datetime.min
+                                        try: return datetime.strptime(d_str, "%d/%m/%Y")
+                                        except: return datetime.min
+                                    
+                                wl_v_dt = get_dt(res.get('venc_real') if 'venc_real' in res else res.get('venc'))
+                                bv_v_dt = get_dt(bv_res.get('venc'))
+                                wl_i_dt = get_dt(res.get('insp'))
+                                bv_i_dt = get_dt(bv_res.get('insp'))
                                 
-                                if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
-                                    if not exito_wl_login or res.get('status') in ["No se pudo encontrar", "Error", "No consultado (WL no disp.)", "No consultado"]:
-                                        res['proveedor'] = "Bureau Veritas"
-                                        res['status'] = bv_res.get('status', 'Encontrado en BV')
-                                        res['insp'] = bv_res.get('insp', '-')
-                                        res['venc'] = bv_res.get('venc', '-')
-                                        res['venc_real'] = bv_res.get('venc', '-')
-                                        res['cert'] = bv_res.get('cert', 'NO')
-                                        res['inf'] = bv_res.get('informe', 'NO')
-                                        res['obs_final'] = bv_res.get('observaciones', '-')
+                                hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                                bv_tiene_cert_vigente = (bv_v_dt >= hoy)
+                                wl_tiene_cert_vigente = (wl_v_dt >= hoy)
+                                
+                                gana_bv_cert = False
+                                gana_bv_inf = False
+                                
+                                if bv_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
+                                    gana_bv_cert = True
+                                elif not wl_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
+                                    gana_bv_cert = True
+                                    
+                                if gana_bv_cert:
+                                    gana_bv_inf = True
+                                elif bv_i_dt > wl_i_dt:
+                                    gana_bv_inf = True
+                                        
+                                if gana_bv_cert or gana_bv_inf:
+                                    res['proveedor'] = "Bureau Veritas"
+                                    res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
+                                    res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('inf', 'NO')
+                                    
+                                    if gana_bv_inf:
+                                        res['insp'] = bv_res.get('insp', res.get('insp'))
+                                        
+                                    res['venc_real'] = bv_res.get('venc') if gana_bv_cert else res.get('venc_real', res.get('venc'))
+                                    
+                                    if es_semestral:
+                                        i_dt = get_dt(res['insp'])
+                                        if i_dt != datetime.min:
+                                            res['venc'] = (i_dt + timedelta(days=180)).strftime("%d/%m/%Y")
+                                        else:
+                                            res['venc'] = "-"
+                                    else:
+                                        if gana_bv_cert:
+                                            res['venc'] = bv_res.get('venc', res.get('venc'))
+                                    
+                                    # Recalcular días restantes para status
+                                    dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
+                                    if dias_restantes > 30:
+                                        res['status'] = "VIGENTE"
+                                        res['color'] = "VERDE"
+                                        res['obs_final'] = f"{dias_restantes} días de vigencia."
                                         res['accion_final'] = "-"
-                                        res['color'] = "VERDE" if bv_res.get('descargado') else "AMARILLO"
-                                        if "archivos_descargados" not in res: res["archivos_descargados"] = []
-                                        res["archivos_descargados"].extend(bv_res.get("archivos_descargados", []))
-                                        for f_path in bv_res.get("archivos_descargados", []):
-                                            if "Certificado" in f_path:
-                                                d_mm = extraer_marca_modelo_de_certificado(f_path)
-                                                if d_mm.get("marca"): res["marca"] = d_mm["marca"]
-                                                if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                                    elif 0 <= dias_restantes <= 30:
+                                        res['status'] = "PRÓXIMO A VENCER"
+                                        res['color'] = "AMARILLO"
+                                        res['obs_final'] = f"{dias_restantes} días de vigencia."
+                                        res['accion_final'] = "Coordinar recertificación"
                                     else:
-                                        def get_dt(d_str):
-                                            if not d_str or d_str == "-": return datetime.min
-                                            try: return datetime.strptime(d_str, "%d/%m/%Y")
-                                            except: return datetime.min
-                                        
-                                    wl_v_dt = get_dt(res.get('venc_real') if 'venc_real' in res else res.get('venc'))
-                                    bv_v_dt = get_dt(bv_res.get('venc'))
-                                    wl_i_dt = get_dt(res.get('insp'))
-                                    bv_i_dt = get_dt(bv_res.get('insp'))
-                                    
-                                    hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                                    bv_tiene_cert_vigente = (bv_v_dt >= hoy)
-                                    wl_tiene_cert_vigente = (wl_v_dt >= hoy)
-                                    
-                                    gana_bv_cert = False
-                                    gana_bv_inf = False
-                                    
-                                    if bv_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
-                                        gana_bv_cert = True
-                                    elif not wl_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
-                                        gana_bv_cert = True
-                                        
-                                    if gana_bv_cert:
-                                        gana_bv_inf = True
-                                    elif bv_i_dt > wl_i_dt:
-                                        gana_bv_inf = True
-                                            
-                                    if gana_bv_cert or gana_bv_inf:
-                                        res['proveedor'] = "Bureau Veritas"
-                                        res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
-                                        res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('inf', 'NO')
-                                        
-                                        if gana_bv_inf:
-                                            res['insp'] = bv_res.get('insp', res.get('insp'))
-                                            
-                                        res['venc_real'] = bv_res.get('venc') if gana_bv_cert else res.get('venc_real', res.get('venc'))
-                                        
+                                        res['status'] = "VENCIDO"
+                                        res['color'] = "ROJO"
                                         if es_semestral:
-                                            i_dt = get_dt(res['insp'])
-                                            if i_dt != datetime.min:
-                                                res['venc'] = (i_dt + timedelta(days=180)).strftime("%d/%m/%Y")
-                                            else:
-                                                res['venc'] = "-"
+                                            res['obs_final'] = f"Último certificado vencido en {res['venc']}." if res['venc'] != "-" else "Último certificado vencido."
                                         else:
-                                            if gana_bv_cert:
-                                                res['venc'] = bv_res.get('venc', res.get('venc'))
-                                        
-                                        # Recalcular días restantes para status
-                                        dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
-                                        if dias_restantes > 30:
-                                            res['status'] = "VIGENTE"
-                                            res['color'] = "VERDE"
-                                            res['obs_final'] = f"{dias_restantes} días de vigencia."
-                                            res['accion_final'] = "-"
-                                        elif 0 <= dias_restantes <= 30:
-                                            res['status'] = "PRÓXIMO A VENCER"
-                                            res['color'] = "AMARILLO"
-                                            res['obs_final'] = f"{dias_restantes} días de vigencia."
-                                            res['accion_final'] = "Coordinar recertificación"
-                                        else:
-                                            res['status'] = "VENCIDO"
-                                            res['color'] = "ROJO"
-                                            if es_semestral:
-                                                res['obs_final'] = f"Último certificado vencido en {res['venc']}." if res['venc'] != "-" else "Último certificado vencido."
-                                            else:
-                                                res['obs_final'] = "Último certificado vencido."
-                                            obs_bv = bv_res.get('observaciones', '')
-                                            if obs_bv and gana_bv_inf: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
-                                            res['accion_final'] = "Coordinar recertificación urgente"
+                                            res['obs_final'] = "Último certificado vencido."
+                                        obs_bv = bv_res.get('observaciones', '')
+                                        if obs_bv and gana_bv_inf: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
+                                        res['accion_final'] = "Coordinar recertificación urgente"
 
-                                        # Extraer marca y modelo del certificado BV
-                                        for f_path in bv_res.get("archivos_descargados", []):
-                                            if "Certificado" in f_path:
-                                                d_mm = extraer_marca_modelo_de_certificado(f_path)
-                                                if d_mm.get("marca"): res["marca"] = d_mm["marca"]
-                                                if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
-                                            
-                                        # Eliminar archivos perdedores de WL
-                                        archivos_wl = res.get("archivos_descargados", [])
-                                        for f_path in archivos_wl:
-                                            if os.path.exists(f_path):
-                                                es_wl_cert = "Certificado" in f_path
-                                                es_wl_inf = "Informe" in f_path
-                                                if (es_wl_cert and gana_bv_cert) or (es_wl_inf and gana_bv_inf):
-                                                    try: os.remove(f_path)
-                                                    except: pass
-                                                    
-                                        # Eliminar archivos perdedores de BV
-                                        archivos_bv = bv_res.get("archivos_descargados", [])
-                                        for f_path in archivos_bv:
-                                            if os.path.exists(f_path):
-                                                es_bv_cert = "Certificado" in f_path
-                                                es_bv_inf = "Informe" in f_path
-                                                if (es_bv_cert and not gana_bv_cert) or (es_bv_inf and not gana_bv_inf):
-                                                    try: os.remove(f_path)
-                                                    except: pass
-                                    else:
-                                        # Ganó WL. Borramos los que bajó BV
-                                        archivos_bv = bv_res.get("archivos_descargados", [])
-                                        for f_path in archivos_bv:
-                                            if os.path.exists(f_path):
+                                    # Extraer marca y modelo del certificado BV
+                                    for f_path in bv_res.get("archivos_descargados", []):
+                                        if "Certificado" in f_path:
+                                            d_mm = extraer_marca_modelo_de_certificado(f_path)
+                                            if d_mm.get("marca"): res["marca"] = d_mm["marca"]
+                                            if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                                        
+                                    # Eliminar archivos perdedores de WL
+                                    archivos_wl = res.get("archivos_descargados", [])
+                                    for f_path in archivos_wl:
+                                        if os.path.exists(f_path):
+                                            es_wl_cert = "Certificado" in f_path
+                                            es_wl_inf = "Informe" in f_path
+                                            if (es_wl_cert and gana_bv_cert) or (es_wl_inf and gana_bv_inf):
                                                 try: os.remove(f_path)
                                                 except: pass
+                                                
+                                    # Eliminar archivos perdedores de BV
+                                    archivos_bv = bv_res.get("archivos_descargados", [])
+                                    for f_path in archivos_bv:
+                                        if os.path.exists(f_path):
+                                            es_bv_cert = "Certificado" in f_path
+                                            es_bv_inf = "Informe" in f_path
+                                            if (es_bv_cert and not gana_bv_cert) or (es_bv_inf and not gana_bv_inf):
+                                                try: os.remove(f_path)
+                                                except: pass
+                                else:
+                                    # Ganó WL. Borramos los que bajó BV
+                                    archivos_bv = bv_res.get("archivos_descargados", [])
+                                    for f_path in archivos_bv:
+                                        if os.path.exists(f_path):
+                                            try: os.remove(f_path)
+                                            except: pass
 
                         # --- BÚSQUEDA EN SHAREPOINT (TÍTULO, CÉDULA, CHASIS, SEGUROS) ---
                         chasis_equipo = ""
@@ -1277,13 +1284,23 @@ if check_password():
                             registrar_metrica(int_id, "Archivo/Texto", exito=fue_exito)
                             
                         render_terminal()
+                        gc.collect()
         
                     if bot:
                         bot.cerrar()
+                    if bv_bot:
+                        bv_bot.cerrar()
                     if lenor_bot:
                         lenor_bot.cerrar()
                     if sp_bot:
                         sp_bot.cerrar()
+                    if 'browser_shared' in locals() and browser_shared:
+                        try: browser_shared.close()
+                        except Exception: pass
+                    if 'pw_shared' in locals() and pw_shared:
+                        try: pw_shared.stop()
+                        except Exception: pass
+                    gc.collect()
                     st.session_state.log_history.append("🔓 Sesiones cerradas correctamente.")
                     st.session_state.log_history.append("🏁 PROCESO FINALIZADO.")
                     st.session_state.res_lista = res_lista
@@ -1358,20 +1375,24 @@ if check_password():
             render_terminal()
         finally:
             try:
-                if 'bot' in locals() and bot:
-                    bot.cerrar()
-            except Exception:
-                pass
+                if 'bot' in locals() and bot: bot.cerrar()
+            except Exception: pass
             try:
-                if 'sp_bot' in locals() and sp_bot:
-                    sp_bot.cerrar()
-            except Exception:
-                pass
+                if 'bv_bot' in locals() and bv_bot: bv_bot.cerrar()
+            except Exception: pass
             try:
-                if 'lenor_bot' in locals() and lenor_bot:
-                    lenor_bot.cerrar()
-            except Exception:
-                pass
+                if 'sp_bot' in locals() and sp_bot: sp_bot.cerrar()
+            except Exception: pass
+            try:
+                if 'lenor_bot' in locals() and lenor_bot: lenor_bot.cerrar()
+            except Exception: pass
+            try:
+                if 'browser_shared' in locals() and browser_shared: browser_shared.close()
+            except Exception: pass
+            try:
+                if 'pw_shared' in locals() and pw_shared: pw_shared.stop()
+            except Exception: pass
+            gc.collect()
             st.session_state.ejecutando = False
             st.rerun()
                 

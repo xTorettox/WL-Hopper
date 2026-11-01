@@ -41,6 +41,7 @@ class SharePointHopperBot:
         self.pw = None
         self.pw_started_here = False
         self.browser = None
+        self.browser_started_here = False
         self.context = None
         self.page = None
         self.cookies_dict = {}
@@ -48,10 +49,10 @@ class SharePointHopperBot:
         self.cached_vtv_files = None     # Cache de actas provisorias y técnicas
         self.cached_seguros_files = None # Cache de pólizas y libres deudas
 
-    def iniciar(self, app_user: str = "fcendra", pw_instance=None) -> tuple[bool, str]:
+    def iniciar(self, app_user: str = "fcendra", pw_instance=None, browser_instance=None) -> tuple[bool, str]:
         """
         Lanza el navegador con protecciones stealth, valida sesión existente o ejecuta
-        login con Kill Switch estricto. Reutiliza la instancia existente de Playwright si se provee.
+        login con Kill Switch estricto. Reutiliza la instancia existente de Playwright y Browser si se provee.
         """
         # 1. Comprobar si el Kill Switch está activo antes de cualquier acción
         locked, reason = self.guard.is_locked()
@@ -68,34 +69,13 @@ class SharePointHopperBot:
                 self.pw = sync_playwright().start()
                 self.pw_started_here = True
 
-            # Rutas para entornos Linux/Cloud
-            rutas_posibles = [
-                "/usr/bin/chromium",
-                "/usr/bin/chromium-browser",
-                "/usr/lib/chromium/chromium",
-                "/usr/bin/google-chrome"
-            ]
-            exec_path = None
-            for r in rutas_posibles:
-                if os.path.exists(r):
-                    exec_path = r
-                    break
-
-            browser_args = [
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-gpu"
-            ]
-
-            launch_kwargs = {
-                "headless": self.headless,
-                "args": browser_args
-            }
-            if exec_path:
-                launch_kwargs["executable_path"] = exec_path
-
-            self.browser = self.pw.chromium.launch(**launch_kwargs)
+            self.browser_started_here = False
+            if browser_instance:
+                self.browser = browser_instance
+            else:
+                from scraper import lanzar_navegador_compartido
+                self.browser = lanzar_navegador_compartido(self.pw, headless=self.headless)
+                self.browser_started_here = True
 
             # 2. Restaurar storageState si existe
             tiene_sesion = self.auth.restore_session_state()
@@ -133,7 +113,25 @@ class SharePointHopperBot:
 
             # Extraer cookies para requests REST ultrarrápidos
             self._actualizar_cookies()
-            logger.info("SharePointHopperBot iniciado exitosamente.")
+
+            # ¡LIBERACIÓN INMEDIATA DE MEMORIA PARA STREAMLIT CLOUD!
+            # SharePoint solo necesita el navegador para autenticar y extraer cookies.
+            # Toda la consulta de archivos y descargas se realiza por REST API (requests).
+            # Cerramos página y contexto inmediatamente para liberar ~300MB de RAM.
+            try:
+                if self.page:
+                    self.page.close()
+                    self.page = None
+                if self.context:
+                    self.context.close()
+                    self.context = None
+                if getattr(self, "browser_started_here", False) and self.browser:
+                    self.browser.close()
+                    self.browser = None
+            except Exception:
+                pass
+
+            logger.info("SharePointHopperBot iniciado exitosamente (cookies capturadas y memoria liberada).")
             return True, "Conexión exitosa a SharePoint."
 
         except KillSwitchException as kse:
@@ -370,14 +368,18 @@ class SharePointHopperBot:
             if self.page:
                 try: self.page.close()
                 except Exception: pass
+                self.page = None
             if self.context:
                 try: self.context.close()
                 except Exception: pass
-            if self.browser:
+                self.context = None
+            if getattr(self, "browser_started_here", False) and self.browser:
                 try: self.browser.close()
                 except Exception: pass
+                self.browser = None
             if getattr(self, "pw_started_here", False) and self.pw:
                 try: self.pw.stop()
                 except Exception: pass
+                self.pw = None
         except Exception as e:
             logger.warning(f"Error cerrando SharePointHopperBot: {e}")

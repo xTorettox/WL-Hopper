@@ -25,10 +25,11 @@ class LenorBot:
         self.page = None
         self.cookies_dict = {}
         self.pw_started_here = False
+        self.browser_started_here = False
         self.base_url = "https://sistema.lenor.com.ar"
         self.panel_url = f"{self.base_url}/LenorMVC/PanelCliente"
 
-    def iniciar(self, usuario: str = "ingresosnqn@sullair.com.ar", clave: str = "Sullair2025", pw_instance=None) -> tuple[bool, str]:
+    def iniciar(self, usuario: str = "ingresosnqn@sullair.com.ar", clave: str = "Sullair2025", pw_instance=None, browser_instance=None) -> tuple[bool, str]:
         """Inicia sesión en Lenor Group y valida el acceso."""
         try:
             if pw_instance:
@@ -38,27 +39,13 @@ class LenorBot:
                 self.pw = sync_playwright().start()
                 self.pw_started_here = True
 
-            # Rutas para entornos Linux/Cloud
-            rutas_posibles = [
-                "/usr/bin/chromium",
-                "/usr/bin/chromium-browser",
-                "/usr/lib/chromium/chromium",
-                "/usr/bin/google-chrome"
-            ]
-            exec_path = None
-            for r in rutas_posibles:
-                if os.path.exists(r):
-                    exec_path = r
-                    break
-
-            launch_kwargs = {
-                "headless": self.headless,
-                "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
-            }
-            if exec_path:
-                launch_kwargs["executable_path"] = exec_path
-
-            self.browser = self.pw.chromium.launch(**launch_kwargs)
+            self.browser_started_here = False
+            if browser_instance:
+                self.browser = browser_instance
+            else:
+                from scraper import lanzar_navegador_compartido
+                self.browser = lanzar_navegador_compartido(self.pw, headless=self.headless)
+                self.browser_started_here = True
             self.context = self.browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 viewport={"width": 1366, "height": 768}
@@ -80,6 +67,23 @@ class LenorBot:
             if "PanelCliente" in self.page.url and "Account/Login" not in self.page.url:
                 self.cookies_dict = {c['name']: c['value'] for c in self.context.cookies()}
                 logger.info("Login en Lenor exitoso.")
+                
+                # ¡LIBERACIÓN INMEDIATA DE MEMORIA PARA STREAMLIT CLOUD!
+                # Lenor realiza todas sus búsquedas y descargas vía peticiones REST (requests).
+                # Cerramos página y contexto inmediatamente para ahorrar ~180MB de RAM.
+                try:
+                    if self.page:
+                        self.page.close()
+                        self.page = None
+                    if self.context:
+                        self.context.close()
+                        self.context = None
+                    if getattr(self, "browser_started_here", False) and self.browser:
+                        self.browser.close()
+                        self.browser = None
+                except Exception:
+                    pass
+
                 return True, "Login exitoso en Lenor."
             else:
                 return False, f"Credenciales de Lenor incorrectas o bloqueo: {self.page.url}"
@@ -294,13 +298,24 @@ class LenorBot:
         return res
 
     def cerrar(self):
-        """Cierra el navegador y contexto de Playwright."""
+        """Cierra el navegador y contexto de Playwright si quedaron activos."""
+        try:
+            if self.page:
+                self.page.close()
+                self.page = None
+        except Exception: pass
         try:
             if self.context:
                 self.context.close()
-            if self.browser:
+                self.context = None
+        except Exception: pass
+        if getattr(self, "browser_started_here", False) and self.browser:
+            try:
                 self.browser.close()
-            if self.pw_started_here and self.pw:
+                self.browser = None
+            except Exception: pass
+        if getattr(self, "pw_started_here", False) and self.pw:
+            try:
                 self.pw.stop()
-        except Exception as e:
-            logger.warning(f"Error cerrando LenorBot: {e}")
+                self.pw = None
+            except Exception: pass
