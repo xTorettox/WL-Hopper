@@ -27,6 +27,7 @@ from auth_manager import SharePointAuthManager
 from sharepoint_scraper import SharePointHopperBot
 from lenor_scraper import LenorBot
 from pdf_utils import extraer_datos_titulo_o_cedula, extraer_marca_modelo_de_certificado, extraer_serie_de_certificado
+from sullapps_ui import inject_custom_css, sullapps_spinner, celebrate_success, verify_sullapps_sso, render_sullapps_portal_notice
 try:
     from admin_view import render_kill_switch_banner, render_user_management
 except ImportError:
@@ -131,17 +132,19 @@ def registrar_metrica(interno, fuente, exito=True):
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
+inject_custom_css()
 
 # --- ESTILOS CSS ---
     
-VERDE_SULLAIR = "#008657"
+VERDE_SULLAIR = "#006837"
 st.markdown(f"""
     <style>
     /* Base de la terminal */
     .terminal-box {{
-        background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
-        font-size: 13px; padding: 15px; border-radius: 5px; 
-        overflow-y: auto; border: 1px solid #444;
+        background-color: #1A1E24; color: #E5E7EB; font-family: 'JetBrains Mono', 'Consolas', monospace;
+        font-size: 13px; padding: 16px; border-radius: 10px; 
+        overflow-y: auto; border: 1px solid #2D333B;
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.35);
     }}
     
     /* Layout exclusivo para Desktop (pantallas anchas) */
@@ -198,120 +201,107 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNCIÓN DE LOGIN (Control de Acceso) ---
-def check_password():
-    """Devuelve True si el usuario ingresó credenciales válidas."""
-    def password_entered():
-        # Verificamos contra los secrets de Streamlit
-        if st.session_state["username"] in st.secrets["passwords"] and \
-           st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
-            st.session_state["password_correct"] = True
-            st.session_state["logged_user"] = st.session_state["username"]
-            del st.session_state["password"]  # Borramos la clave por seguridad
+# --- FUNCIÓN DE LOGIN (Control de Acceso + SSO SullApps) ---
+def _cargar_credenciales_hopper3(usuario_app: str):
+    if not supabase:
+        return
+    try:
+        res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", usuario_app).execute()
+        wl_creds = {}
+        bv_creds = {}
+        sp_creds = {}
+        lenor_creds = {}
+        if res.data:
+            for cred in res.data:
+                s_name = cred.get("sitio", "")
+                u_dec = desencriptar(cred.get("user_enc", ""))
+                p_dec = desencriptar(cred.get("pass_enc", ""))
+                
+                if u_dec:
+                    if s_name == "WL" or s_name.startswith("WL_"):
+                        wl_creds[u_dec] = p_dec
+                    elif s_name.startswith("BV_"):
+                        bv_creds[u_dec] = p_dec
+                    elif (s_name == "SHAREPOINT" or s_name.startswith("SP_")) and s_name not in ["SP_KILL_SWITCH", "SP_STORAGE_STATE"]:
+                        sp_creds[u_dec] = p_dec
+                    elif s_name == "LENOR" or s_name.startswith("LENOR_"):
+                        lenor_creds[u_dec] = p_dec
+        
+        st.session_state["wl_creds_dict"] = wl_creds
+        st.session_state["bv_creds_dict"] = bv_creds
+        st.session_state["sp_creds_dict"] = sp_creds
+        st.session_state["lenor_creds_dict"] = lenor_creds
+        
+        if wl_creds:
+            first_wl = list(wl_creds.keys())[0]
+            st.session_state["wl_user"] = first_wl
+            st.session_state["wl_pw"] = wl_creds[first_wl]
+        else:
+            st.session_state["wl_user"], st.session_state["wl_pw"] = "", ""
             
-            # Fetch credenciales desde Supabase
-            if supabase:
-                try:
-                    res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", st.session_state["logged_user"]).execute()
-                    wl_creds = {}
-                    bv_creds = {}
-                    sp_creds = {}
-                    lenor_creds = {}
-                    if res.data:
-                        for cred in res.data:
-                            s_name = cred.get("sitio", "")
+        if bv_creds:
+            first_bv = list(bv_creds.keys())[0]
+            st.session_state["bv_user"] = first_bv
+            st.session_state["bv_pw"] = bv_creds[first_bv]
+        else:
+            st.session_state["bv_user"], st.session_state["bv_pw"] = "", ""
+
+        if not sp_creds:
+            try:
+                res_sp_corp = supabase.table("credenciales_sitios").select("*").in_("usuario_app", ["fcendra", "system_auth"]).execute()
+                if res_sp_corp.data:
+                    for cred in res_sp_corp.data:
+                        s_name = cred.get("sitio", "")
+                        if (s_name == "SHAREPOINT" or s_name.startswith("SP_")) and s_name not in ["SP_KILL_SWITCH", "SP_STORAGE_STATE"]:
                             u_dec = desencriptar(cred.get("user_enc", ""))
                             p_dec = desencriptar(cred.get("pass_enc", ""))
-                            
                             if u_dec:
-                                if s_name == "WL" or s_name.startswith("WL_"):
-                                    wl_creds[u_dec] = p_dec
-                                elif s_name.startswith("BV_"):
-                                    bv_creds[u_dec] = p_dec
-                                elif (s_name == "SHAREPOINT" or s_name.startswith("SP_")) and s_name not in ["SP_KILL_SWITCH", "SP_STORAGE_STATE"]:
-                                    sp_creds[u_dec] = p_dec
-                                elif s_name == "LENOR" or s_name.startswith("LENOR_"):
-                                    lenor_creds[u_dec] = p_dec
-                    
-                    st.session_state["wl_creds_dict"] = wl_creds
-                    st.session_state["bv_creds_dict"] = bv_creds
-                    st.session_state["sp_creds_dict"] = sp_creds
-                    st.session_state["lenor_creds_dict"] = lenor_creds
-                    
-                    if wl_creds:
-                        first_wl = list(wl_creds.keys())[0]
-                        st.session_state["wl_user"] = first_wl
-                        st.session_state["wl_pw"] = wl_creds[first_wl]
-                    else:
-                        st.session_state["wl_user"], st.session_state["wl_pw"] = "", ""
-                        
-                    if bv_creds:
-                        first_bv = list(bv_creds.keys())[0]
-                        st.session_state["bv_user"] = first_bv
-                        st.session_state["bv_pw"] = bv_creds[first_bv]
-                    else:
-                        st.session_state["bv_user"], st.session_state["bv_pw"] = "", ""
+                                sp_creds[u_dec] = p_dec
+            except Exception as e_sp:
+                print(f"Error fetching corporate SP creds: {e_sp}")
 
-                    # Si el usuario no tiene credencial propia de SharePoint, cargar la corporativa o sesión persistente
-                    if not sp_creds:
-                        try:
-                            res_sp_corp = supabase.table("credenciales_sitios").select("*").in_("usuario_app", ["fcendra", "system_auth"]).execute()
-                            if res_sp_corp.data:
-                                for cred in res_sp_corp.data:
-                                    s_name = cred.get("sitio", "")
-                                    if (s_name == "SHAREPOINT" or s_name.startswith("SP_")) and s_name not in ["SP_KILL_SWITCH", "SP_STORAGE_STATE"]:
-                                        u_dec = desencriptar(cred.get("user_enc", ""))
-                                        p_dec = desencriptar(cred.get("pass_enc", ""))
-                                        if u_dec:
-                                            sp_creds[u_dec] = p_dec
-                        except Exception as e_sp:
-                            print(f"Error fetching corporate SP creds: {e_sp}")
-
-                    if sp_creds:
-                        first_sp = list(sp_creds.keys())[0]
-                        st.session_state["sp_user"] = first_sp
-                        st.session_state["sp_pw"] = sp_creds[first_sp]
-                    elif os.path.exists(STORAGE_STATE_PATH):
-                        st.session_state["sp_user"] = "Sesión Corporativa Persistente"
-                        st.session_state["sp_pw"] = "********"
-                    else:
-                        st.session_state["sp_user"], st.session_state["sp_pw"] = "", ""
-
-                    if lenor_creds:
-                        first_lenor = list(lenor_creds.keys())[0]
-                        st.session_state["lenor_user"] = first_lenor
-                        st.session_state["lenor_pw"] = lenor_creds[first_lenor]
-                    else:
-                        st.session_state["lenor_user"] = "ingresosnqn@sullair.com.ar"
-                        st.session_state["lenor_pw"] = "Sullair2025"
-                except Exception as e:
-                    print(f"Error fetching credentials: {e}")
+        if sp_creds:
+            first_sp = list(sp_creds.keys())[0]
+            st.session_state["sp_user"] = first_sp
+            st.session_state["sp_pw"] = sp_creds[first_sp]
+        elif os.path.exists(STORAGE_STATE_PATH):
+            st.session_state["sp_user"] = "Sesión Corporativa Persistente"
+            st.session_state["sp_pw"] = "********"
         else:
-            st.session_state["password_correct"] = False
+            st.session_state["sp_user"], st.session_state["sp_pw"] = "", ""
 
-    # Si NO es True (es decir, es False o None), mostramos el login
-    if st.session_state.get("password_correct") is not True:
-        c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
-        
-        with c_l2:
-            try:
-                st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
-            except:
-                st.markdown("<h2 style='text-align: center;'>🚀 WL Hopper</h2>", unsafe_allow_html=True)
-            
-            st.markdown("<h4 style='text-align: center;'>Acceso al Sistema</h4>", unsafe_allow_html=True)
-            
-            with st.form("login_form"):
-                st.text_input("Usuario", key="username")
-                st.text_input("Contraseña", type="password", key="password")
-                st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
-            
-            if st.session_state.get("password_correct") == False:
-                st.error("😕 Usuario o contraseña incorrectos")
-        
-        return False
-        
-    return True
+        if lenor_creds:
+            first_lenor = list(lenor_creds.keys())[0]
+            st.session_state["lenor_user"] = first_lenor
+            st.session_state["lenor_pw"] = lenor_creds[first_lenor]
+        else:
+            st.session_state["lenor_user"] = "ingresosnqn@sullair.com.ar"
+            st.session_state["lenor_pw"] = "Sullair2025"
+    except Exception as e:
+        print(f"Error fetching credentials: {e}")
+
+def check_password():
+    """Devuelve True si el usuario ingresó autenticado vía SSO SullApps."""
+    if st.session_state.get("password_correct") is True and st.session_state.get("logged_user"):
+        return True
+
+    sso_identity = verify_sullapps_sso()
+    if sso_identity:
+        st.session_state["password_correct"] = True
+        st.session_state["logged_user"] = sso_identity["username"]
+        _cargar_credenciales_hopper3(sso_identity["username"])
+        return True
+
+    c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
+    with c_l2:
+        try:
+            st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
+        except Exception:
+            st.markdown("<h2 style='text-align: center;'>🚀 WL Hopper 3.0</h2>", unsafe_allow_html=True)
+
+        render_sullapps_portal_notice(app_slug="wl-hopper-3")
+
+    return False
 
 # --- FLUJO PRINCIPAL ---
 if check_password():
@@ -675,7 +665,7 @@ if check_password():
         if archivo_subido is not None:
             archivo_id = archivo_subido.name + str(archivo_subido.size)
             if st.session_state.ultimo_archivo_procesado != archivo_id:
-                with st.spinner("Procesando archivo..."):
+                with sullapps_spinner("scraping"):
                     texto_extraido = ""
                     if archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
                         try:
@@ -760,10 +750,10 @@ if check_password():
         terminal_placeholder = st.empty()
         def render_terminal():
             html = f'<div class="terminal-box">'
-            html += f'<div style="font-family: \'Consolas\', monospace; font-weight: bold; font-size: 0.9rem; color: #00ff00; margin-bottom: 10px; border-bottom: 1px dashed #555; padding-bottom: 5px;">&gt;<span class="blink-cursor">_</span> REGISTRO DE ACTIVIDAD</div>'
+            html += f'<div style="font-family: \'JetBrains Mono\', \'Consolas\', monospace; font-weight: bold; font-size: 0.9rem; color: #10B981; margin-bottom: 10px; border-bottom: 1px dashed #374151; padding-bottom: 6px;">&gt;<span class="blink-cursor">_</span> REGISTRO DE ACTIVIDAD</div>'
             for entry in st.session_state.log_history:
                 # Colores basados en íconos
-                color = "#f8f9fa"
+                color = "#E5E7EB"
                 if "✅" in entry or "VIGENTE" in entry: color = "#50fa7b"
                 elif "❌" in entry or "ERROR" in entry or "VENCIDO" in entry: color = "#ff5555"
                 elif "⚠️" in entry or "⏳" in entry or "PRÓXIMO" in entry: color = "#f1fa8c"
@@ -848,6 +838,8 @@ if check_password():
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar en el cuadro de texto.")
                 render_terminal()
             else:
+                with sullapps_spinner("scraping"):
+                    pass
                 # --- LANZAMIENTO DEL MOTOR CHROMIUM COMPARTIDO (OPTIMIZACIÓN STREAMLIT CLOUD 1GB RAM) ---
                 pw_shared = None
                 browser_shared = None
@@ -941,7 +933,8 @@ if check_password():
                         render_terminal()
                         
                         if exito_wl_login and bot:
-                            res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
+                            with sullapps_spinner("scraping"):
+                                res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
                             res['id'] = int_id
                             res['proveedor'] = "Worklift"
                             res['marca'] = ""
@@ -974,7 +967,8 @@ if check_password():
                         
                         # --- AUDITORÍA DOBLE: BUREAU VERITAS ---
                         if bv_bot and exito_bv_login:
-                            bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
+                            with sullapps_spinner("scraping"):
+                                bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
                             
                             if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
                                 if not exito_wl_login or res.get('status') in ["No se pudo encontrar", "Error", "No consultado (WL no disp.)", "No consultado"]:
@@ -1105,7 +1099,8 @@ if check_password():
                         if sp_bot:
                             st.session_state.log_history.append("Buscando en SharePoint (Título, Cédula, Seguros)...")
                             render_terminal()
-                            sp_res = sp_bot.procesar_interno(int_id, ruta_temp)
+                            with sullapps_spinner("scraping"):
+                                sp_res = sp_bot.procesar_interno(int_id, ruta_temp)
                             for sp_step in sp_res.get("log", []):
                                 st.session_state.log_history.append(f"  {sp_step}")
                                 
@@ -1148,14 +1143,15 @@ if check_password():
                             else:
                                 st.session_state.log_history.append(f"Consultando Lenor para {int_id} (serie/chasis: {chasis_equipo})...")
                                 render_terminal()
-                                lenor_res = lenor_bot.buscar_equipo(
-                                    interno=int_id,
-                                    chasis_o_serie=chasis_equipo,
-                                    ruta_base=ruta_temp,
-                                    bajar_cert=bajar_cert,
-                                    bajar_inf=bajar_inf,
-                                    prefijo_cert=prefijo_cert
-                                )
+                                with sullapps_spinner("scraping"):
+                                    lenor_res = lenor_bot.buscar_equipo(
+                                        interno=int_id,
+                                        chasis_o_serie=chasis_equipo,
+                                        ruta_base=ruta_temp,
+                                        bajar_cert=bajar_cert,
+                                        bajar_inf=bajar_inf,
+                                        prefijo_cert=prefijo_cert
+                                    )
                                 for lenor_step in lenor_res.get("log", []):
                                     st.session_state.log_history.append(f"  {lenor_step}")
 
