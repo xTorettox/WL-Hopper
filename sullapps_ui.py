@@ -502,22 +502,70 @@ def inject_custom_css() -> None:
             display: none !important;
         }
 
-        /* Keep header minimal & transparent so sidebar toggle remains clickable */
+        /* Keep header minimal & transparent while guaranteeing sidebar toggle stays visible & clickable on desktop & mobile */
         header[data-testid="stHeader"] {
             background: transparent !important;
-            height: 2.5rem !important;
-            pointer-events: none;
+            height: 2.85rem !important;
+            pointer-events: none !important;
+            z-index: 999990 !important;
         }
-        header[data-testid="stHeader"] button,
+        header[data-testid="stHeader"] [data-testid="stToolbar"],
         [data-testid="collapsedControl"],
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="stExpandSidebarButton"],
         [data-testid="stSidebarCollapseButton"] {
             pointer-events: auto !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            z-index: 999999 !important;
+        }
+        [data-testid="collapsedControl"],
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="stExpandSidebarButton"] {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            position: fixed !important;
+            top: 0.55rem !important;
+            left: 0.65rem !important;
+            background: #FFFFFF !important;
+            border: 1.5px solid #006837 !important;
+            border-radius: 10px !important;
+            box-shadow: 0 3px 10px rgba(0, 104, 55, 0.22) !important;
+            color: #006837 !important;
+            min-width: 2.35rem !important;
+            min-height: 2.35rem !important;
+        }
+        header[data-testid="stHeader"] button,
+        [data-testid="collapsedControl"] button,
+        [data-testid="stSidebarCollapsedControl"] button,
+        [data-testid="stExpandSidebarButton"] button,
+        [data-testid="stSidebarCollapseButton"] button {
+            pointer-events: auto !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            color: #006837 !important;
+        }
+        [data-testid="collapsedControl"] svg,
+        [data-testid="stSidebarCollapsedControl"] svg,
+        [data-testid="stExpandSidebarButton"] svg,
+        [data-testid="stSidebarCollapseButton"] svg {
+            fill: #006837 !important;
+            color: #006837 !important;
         }
 
         /* Clean container spacing for embedded & full-screen views */
         .block-container {
             padding-top: 1.75rem !important;
             padding-bottom: 2.5rem !important;
+        }
+        @media (max-width: 768px) {
+            .block-container {
+                padding-top: 3.35rem !important;
+                padding-left: 0.85rem !important;
+                padding-right: 0.85rem !important;
+                padding-bottom: 2.25rem !important;
+            }
         }
 
         /* Primary Action Buttons */

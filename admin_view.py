@@ -211,4 +211,4 @@ def render_user_management(supabase_client=None):
                         else:
                             st.caption("🔒 *Cuenta de administrador protegida.*")
 
-        st.info("💡 **Aviso sobre contraseñas:** Recordá que si creás un nuevo usuario para Streamlit Cloud, debés registrar su contraseña en la sección `[passwords]` de los Secrets de Streamlit para que pueda ingresar al sistema.")
+        st.info("💡 **Acceso Unificado SullApps:** Las contraseñas de ingreso y el acceso a WL Hopper 3.0 se administran únicamente desde el **Panel Admin de SullApps** (`admin.php`). Asegurate de que el `usuario` creado aquí coincida exactamente con su `@usuario` en SullApps para vincular estos permisos granulares.")

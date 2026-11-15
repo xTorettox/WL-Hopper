@@ -131,7 +131,8 @@ def registrar_metrica(interno, fuente, exito=True):
 
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
+_WLH3_ICON_PATH = "img/sullapps_logo_mini.png" if os.path.exists("img/sullapps_logo_mini.png") else "img/favicon.png"
+st.set_page_config(page_title="WL Hopper 3.0 - Sullair Argentina", page_icon=_WLH3_ICON_PATH, layout="wide")
 inject_custom_css()
 
 # --- ESTILOS CSS ---
@@ -596,13 +597,14 @@ if check_password():
     render_kill_switch_banner(security_guard, st.session_state.get("logged_user", ""))
     
     st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-    c_l1, c_l2, c_l3 = st.columns([1.5, 1, 1.5])
-    with c_l2: 
+    c_l1, c_l2, c_l3 = st.columns([1.4, 1.2, 1.4])
+    with c_l2:
         try:
-            st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
-        except:
+            _wlh3_logo = "img/sullapps_logo_full.png" if os.path.exists("img/sullapps_logo_full.png") else "img/WL Hopper Logo - nspc.png"
+            st.image(_wlh3_logo, use_container_width=True)
+        except Exception:
             pass
-    st.markdown("<h5 style='text-align: center; color: #555; margin-top:-10px; margin-bottom: 25px;'>Automatización de Descarga de Certificados</h5>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #4B5563; font-size: 0.92rem; font-weight: 600; margin-top:-6px; margin-bottom: 18px;'>Automatización de Descarga de Certificados y Legajos</p>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
     col_left, col_right = st.columns([1, 1.2], gap="large")
