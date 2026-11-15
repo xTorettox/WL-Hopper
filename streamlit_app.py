@@ -18,6 +18,7 @@ from utils import extraer_internos, extraer_texto_de_archivo, calcular_vencimien
 from supabase import create_client, Client
 from cryptography.fernet import Fernet
 from datetime import datetime, timedelta
+from sullapps_ui import inject_custom_css, sullapps_spinner, celebrate_success, verify_sullapps_sso, render_sullapps_portal_notice
 
 # --- CONFIGURACIÓN BÚNKER DE SEGURIDAD Y BD ---
 try:
@@ -87,17 +88,19 @@ def registrar_metrica(interno, fuente, exito=True):
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="WL Hopper - Sullair Argentina", page_icon="img/favicon.png", layout="wide")
+inject_custom_css()
 
 # --- ESTILOS CSS ---
     
-VERDE_SULLAIR = "#008657"
+VERDE_SULLAIR = "#006837"
 st.markdown(f"""
     <style>
-    /* Base de la terminal */
+    /* Base de la terminal unificada SullApps (#1A1E24 / #E5E7EB) */
     .terminal-box {{
-        background-color: #212529; color: #f8f9fa; font-family: 'Consolas', monospace;
-        font-size: 13px; padding: 15px; border-radius: 5px; 
-        overflow-y: auto; border: 1px solid #444;
+        background-color: #1A1E24; color: #E5E7EB; font-family: 'JetBrains Mono', 'Consolas', monospace;
+        font-size: 13px; padding: 16px; border-radius: 10px; 
+        overflow-y: auto; border: 1px solid #2D333B;
+        box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.08);
     }}
     
     /* Layout exclusivo para Desktop (pantallas anchas) */
@@ -154,79 +157,67 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNCIÓN DE LOGIN (Control de Acceso) ---
-def check_password():
-    """Devuelve True si el usuario ingresó credenciales válidas."""
-    def password_entered():
-        # Verificamos contra los secrets de Streamlit
-        if st.session_state["username"] in st.secrets["passwords"] and \
-           st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
-            st.session_state["password_correct"] = True
-            st.session_state["logged_user"] = st.session_state["username"]
-            del st.session_state["password"]  # Borramos la clave por seguridad
-            
-            # Fetch credenciales desde Supabase
-            if supabase:
-                try:
-                    res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", st.session_state["logged_user"]).execute()
-                    wl_creds = {}
-                    bv_creds = {}
-                    if res.data:
-                        for cred in res.data:
-                            s_name = cred.get("sitio", "")
-                            u_dec = desencriptar(cred.get("user_enc", ""))
-                            p_dec = desencriptar(cred.get("pass_enc", ""))
-                            
-                            if u_dec:
-                                if s_name == "WL" or s_name.startswith("WL_"):
-                                    wl_creds[u_dec] = p_dec
-                                elif s_name.startswith("BV_"):
-                                    bv_creds[u_dec] = p_dec
-                    
-                    st.session_state["wl_creds_dict"] = wl_creds
-                    st.session_state["bv_creds_dict"] = bv_creds
-                    
-                    if wl_creds:
-                        first_wl = list(wl_creds.keys())[0]
-                        st.session_state["wl_user"] = first_wl
-                        st.session_state["wl_pw"] = wl_creds[first_wl]
-                    else:
-                        st.session_state["wl_user"], st.session_state["wl_pw"] = "", ""
-                        
-                    if bv_creds:
-                        first_bv = list(bv_creds.keys())[0]
-                        st.session_state["bv_user"] = first_bv
-                        st.session_state["bv_pw"] = bv_creds[first_bv]
-                    else:
-                        st.session_state["bv_user"], st.session_state["bv_pw"] = "", ""
-                except Exception as e:
-                    print(f"Error fetching credentials: {e}")
+# --- FUNCIÓN DE LOGIN (Control de Acceso + SSO SullApps) ---
+def _cargar_credenciales_supabase(usuario_app: str):
+    if not supabase:
+        return
+    try:
+        res = supabase.table("credenciales_sitios").select("*").eq("usuario_app", usuario_app).execute()
+        wl_creds = {}
+        bv_creds = {}
+        if res.data:
+            for cred in res.data:
+                s_name = cred.get("sitio", "")
+                u_dec = desencriptar(cred.get("user_enc", ""))
+                p_dec = desencriptar(cred.get("pass_enc", ""))
+                
+                if u_dec:
+                    if s_name == "WL" or s_name.startswith("WL_"):
+                        wl_creds[u_dec] = p_dec
+                    elif s_name.startswith("BV_"):
+                        bv_creds[u_dec] = p_dec
+        
+        st.session_state["wl_creds_dict"] = wl_creds
+        st.session_state["bv_creds_dict"] = bv_creds
+        
+        if wl_creds:
+            first_wl = list(wl_creds.keys())[0]
+            st.session_state["wl_user"] = first_wl
+            st.session_state["wl_pw"] = wl_creds[first_wl]
         else:
-            st.session_state["password_correct"] = False
+            st.session_state["wl_user"], st.session_state["wl_pw"] = "", ""
+            
+        if bv_creds:
+            first_bv = list(bv_creds.keys())[0]
+            st.session_state["bv_user"] = first_bv
+            st.session_state["bv_pw"] = bv_creds[first_bv]
+        else:
+            st.session_state["bv_user"], st.session_state["bv_pw"] = "", ""
+    except Exception as e:
+        print(f"Error fetching credentials: {e}")
 
-    # Si NO es True (es decir, es False o None), mostramos el login
-    if st.session_state.get("password_correct") is not True:
-        c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
-        
-        with c_l2:
-            try:
-                st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
-            except:
-                st.markdown("<h2 style='text-align: center;'>🚀 WL Hopper</h2>", unsafe_allow_html=True)
-            
-            st.markdown("<h4 style='text-align: center;'>Acceso al Sistema</h4>", unsafe_allow_html=True)
-            
-            with st.form("login_form"):
-                st.text_input("Usuario", key="username")
-                st.text_input("Contraseña", type="password", key="password")
-                st.form_submit_button("Ingresar", on_click=password_entered, use_container_width=True)
-            
-            if st.session_state.get("password_correct") == False:
-                st.error("😕 Usuario o contraseña incorrectos")
-        
-        return False
-        
-    return True
+def check_password():
+    """Devuelve True si el usuario ingresó autenticado vía SSO SullApps."""
+    if st.session_state.get("password_correct") is True and st.session_state.get("logged_user"):
+        return True
+
+    sso_identity = verify_sullapps_sso()
+    if sso_identity:
+        st.session_state["password_correct"] = True
+        st.session_state["logged_user"] = sso_identity["username"]
+        _cargar_credenciales_supabase(sso_identity["username"])
+        return True
+
+    c_l1, c_l2, c_l3 = st.columns([1.2, 1, 1.2])
+    with c_l2:
+        try:
+            st.image("img/WL Hopper Logo - nspc.png", use_container_width=True)
+        except Exception:
+            st.markdown("<h2 style='text-align: center;'>🚀 WL Hopper</h2>", unsafe_allow_html=True)
+
+        render_sullapps_portal_notice(app_slug="wl-hopper")
+
+    return False
 
 # --- FLUJO PRINCIPAL ---
 if check_password():
@@ -511,7 +502,7 @@ if check_password():
         if archivo_subido is not None:
             archivo_id = archivo_subido.name + str(archivo_subido.size)
             if st.session_state.ultimo_archivo_procesado != archivo_id:
-                with st.spinner("Procesando archivo..."):
+                with sullapps_spinner("scraping"):
                     texto_extraido = ""
                     if archivo_subido.name.lower().endswith(('.png', '.jpg', '.jpeg')):
                         try:
@@ -596,10 +587,10 @@ if check_password():
         terminal_placeholder = st.empty()
         def render_terminal():
             html = f'<div class="terminal-box">'
-            html += f'<div style="font-family: \'Consolas\', monospace; font-weight: bold; font-size: 0.9rem; color: #00ff00; margin-bottom: 10px; border-bottom: 1px dashed #555; padding-bottom: 5px;">&gt;<span class="blink-cursor">_</span> REGISTRO DE ACTIVIDAD</div>'
+            html += f'<div style="font-family: \'JetBrains Mono\', \'Consolas\', monospace; font-weight: bold; font-size: 0.9rem; color: #10B981; margin-bottom: 10px; border-bottom: 1px dashed #374151; padding-bottom: 6px;">&gt;<span class="blink-cursor">_</span> REGISTRO DE ACTIVIDAD</div>'
             for entry in st.session_state.log_history:
                 # Colores basados en íconos
-                color = "#f8f9fa"
+                color = "#E5E7EB"
                 if "✅" in entry or "VIGENTE" in entry: color = "#50fa7b"
                 elif "❌" in entry or "ERROR" in entry or "VENCIDO" in entry: color = "#ff5555"
                 elif "⚠️" in entry or "⏳" in entry or "PRÓXIMO" in entry: color = "#f1fa8c"
@@ -674,8 +665,10 @@ if check_password():
                 st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
                 render_terminal()
                 
-                bot = WLHopperBot(headless=True)
-                if bot.iniciar(wl_usr, wl_pass):
+                with sullapps_spinner("scraping"):
+                    bot = WLHopperBot(headless=True)
+                    exito_wl_init = bot.iniciar(wl_usr, wl_pass)
+                if exito_wl_init:
                     st.session_state.log_history[-1] = "🔐 Login exitoso en Worklift."
                     
                     # Conexión inicial a Bureau Veritas si corresponde
@@ -697,7 +690,8 @@ if check_password():
                     for int_id in lista:
                         st.session_state.log_history.append(f"<br>--- Procesando {int_id} ---")
                         render_terminal()
-                        res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
+                        with sullapps_spinner("scraping"):
+                            res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
                         res['id'] = int_id
                         res['proveedor'] = "Worklift"
                         
