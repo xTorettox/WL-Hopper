@@ -1,6 +1,9 @@
 import streamlit as st
 import os
 import shutil
+import time
+import traceback
+import json
 import pandas as pd
 import zipfile
 from io import BytesIO
@@ -128,6 +131,97 @@ def registrar_metrica(interno, fuente, exito=True):
         supabase.table("metricas").insert(data).execute()
     except Exception as e:
         print(f"Error registrando métrica: {e}")
+
+
+# --- AUDITORÍA Y LOGS TÉCNICOS (SOLO ADMIN) ---
+LOGS_DIR_LOCAL = "logs_hopper"
+
+def es_admin_avanzado(usuario: str) -> bool:
+    u = (usuario or "").strip().lower()
+    if u in ["fcendra", "admin"] or u.startswith("fcendra"):
+        return True
+    try:
+        return (obtener_perfil(usuario).get("rol") or "").upper() == "ADMIN"
+    except Exception:
+        return False
+
+def guardar_log_auditoria(usuario: str, internos: list, parametros: dict, resumen_equipos: list, debug_lines: list, hubo_error: bool = False) -> None:
+    """Persiste el log técnico completo en Supabase (si existe la tabla hopper_logs) y en disco local."""
+    ahora = datetime.now()
+    ts_iso = ahora.isoformat()
+    ts_file = ahora.strftime("%Y%m%d_%H%M%S")
+    contenido_txt = "\n".join(debug_lines)
+    internos_str = ", ".join(internos) if internos else "-"
+    estado_corrida = "ERROR" if hubo_error else "OK"
+
+    # 1. Respaldo local en disco (últimas 50 corridas)
+    try:
+        asegurar_carpeta(LOGS_DIR_LOCAL)
+        user_safe = re.sub(r"[^a-zA-Z0-9_-]", "_", (usuario or "anon"))
+        fname = os.path.join(LOGS_DIR_LOCAL, f"log_{ts_file}_{user_safe}.json")
+        payload_local = {
+            "fecha": ts_iso,
+            "usuario": usuario or "desconocido",
+            "estado": estado_corrida,
+            "total_equipos": len(internos),
+            "internos": internos_str,
+            "parametros": parametros,
+            "resumen": resumen_equipos,
+            "log_completo": contenido_txt,
+        }
+        with open(fname, "w", encoding="utf-8") as f_log:
+            json.dump(payload_local, f_log, ensure_ascii=False, indent=2)
+        # Rotación: conservar los 50 más recientes
+        existentes = sorted(
+            [os.path.join(LOGS_DIR_LOCAL, f) for f in os.listdir(LOGS_DIR_LOCAL) if f.endswith(".json")],
+            reverse=True,
+        )
+        for viejo in existentes[50:]:
+            try:
+                os.remove(viejo)
+            except Exception:
+                pass
+    except Exception as e_loc:
+        print(f"Error guardando log local: {e_loc}")
+
+    # 2. Persistencia central en Supabase (tabla hopper_logs)
+    if supabase:
+        try:
+            supabase.table("hopper_logs").insert({
+                "fecha": ts_iso,
+                "usuario": usuario or "desconocido",
+                "estado": estado_corrida,
+                "total_equipos": len(internos),
+                "internos": internos_str[:2000],
+                "parametros": json.dumps(parametros, ensure_ascii=False),
+                "log_completo": contenido_txt[:100000],
+            }).execute()
+        except Exception as e_sb:
+            print(f"Aviso Supabase hopper_logs (opcional): {e_sb}")
+
+def cargar_logs_auditoria(limite: int = 50) -> tuple[list, str]:
+    """Lee el historial de logs técnicos desde Supabase (preferido) o disco local."""
+    if supabase:
+        try:
+            resp = supabase.table("hopper_logs").select("*").order("fecha", desc=True).limit(limite).execute()
+            if resp.data is not None:
+                return resp.data, "supabase"
+        except Exception:
+            pass
+    # Fallback a disco local
+    registros = []
+    if os.path.exists(LOGS_DIR_LOCAL):
+        archivos = sorted(
+            [os.path.join(LOGS_DIR_LOCAL, f) for f in os.listdir(LOGS_DIR_LOCAL) if f.endswith(".json")],
+            reverse=True,
+        )[:limite]
+        for path in archivos:
+            try:
+                with open(path, "r", encoding="utf-8") as f_in:
+                    registros.append(json.load(f_in))
+            except Exception:
+                pass
+    return registros, "local"
 
 
 # --- CONFIGURACIÓN ---
@@ -315,18 +409,78 @@ if check_password():
         </script>
     """, height=0)
 
-    # --- ADMIN DASHBOARD Y GESTIÓN DE USUARIOS (SIDEBAR) ---
-    if st.session_state.get("logged_user") == "fcendra":
+    # --- ADMIN DASHBOARD, GESTIÓN DE USUARIOS Y LOGS TÉCNICOS (SIDEBAR) ---
+    if es_admin_avanzado(st.session_state.get("logged_user", "")):
         with st.sidebar:
             st.markdown("### ⚙️ Panel de Admin")
             if st.button("👥 Gestión de Usuarios", use_container_width=True):
                 st.session_state.show_user_editor = True
                 st.session_state.show_dashboard = False
+                st.session_state.show_audit_logs = False
                 st.rerun()
             if supabase and st.button("📊 Abrir Dashboard", use_container_width=True):
                 st.session_state.show_dashboard = True
                 st.session_state.show_user_editor = False
+                st.session_state.show_audit_logs = False
                 st.rerun()
+            if st.button("🧾 Historial de Logs", use_container_width=True):
+                st.session_state.show_audit_logs = True
+                st.session_state.show_dashboard = False
+                st.session_state.show_user_editor = False
+                st.rerun()
+
+    # Vista: Historial de Logs Técnicos (Solo Admin)
+    if st.session_state.get("show_audit_logs", False) and es_admin_avanzado(st.session_state.get("logged_user", "")):
+        st.title("🧾 Historial de Logs Técnicos — WL Hopper")
+        if st.button("⬅️ Volver a la App", type="primary"):
+            st.session_state.show_audit_logs = False
+            st.rerun()
+
+        registros_logs, origen_logs = cargar_logs_auditoria(limite=60)
+        if origen_logs == "supabase":
+            st.caption("🗄️ Fuente: Supabase (`hopper_logs`) — historial persistente en la nube.")
+        else:
+            st.caption("💾 Fuente: almacenamiento local de esta instancia (`logs_hopper/`). Para persistencia permanente en la nube, creá la tabla `hopper_logs` en Supabase.")
+
+        if not registros_logs:
+            st.info("Todavía no hay corridas registradas en el historial de logs.")
+        else:
+            fcol1, fcol2 = st.columns(2)
+            filtro_usr = fcol1.text_input("Filtrar por usuario", placeholder="ej: fcendra, ingresosnqn...")
+            filtro_int = fcol2.text_input("Filtrar por interno", placeholder="ej: E040204, 3866...")
+
+            filtrados = []
+            for reg in registros_logs:
+                u_val = str(reg.get("usuario", "")).lower()
+                i_val = str(reg.get("internos", "")).lower()
+                if filtro_usr and filtro_usr.strip().lower() not in u_val:
+                    continue
+                if filtro_int and filtro_int.strip().lower() not in i_val:
+                    continue
+                filtrados.append(reg)
+
+            st.caption(f"Mostrando {len(filtrados)} de {len(registros_logs)} corridas.")
+            for idx_l, reg in enumerate(filtrados):
+                fecha_fmt = str(reg.get("fecha", ""))[:19].replace("T", " ")
+                usr_lbl = reg.get("usuario", "desconocido")
+                est_lbl = reg.get("estado", "OK")
+                tot_lbl = reg.get("total_equipos", 0)
+                ints_prev = str(reg.get("internos", "-"))
+                if len(ints_prev) > 65:
+                    ints_prev = ints_prev[:62] + "..."
+                icono_est = "❌" if est_lbl == "ERROR" else "✅"
+                with st.expander(f"{icono_est} [{fecha_fmt}] {usr_lbl} — {tot_lbl} eq. ({ints_prev})", expanded=(idx_l == 0)):
+                    log_txt = reg.get("log_completo", "")
+                    st.code(log_txt or "(Sin contenido)", language="text")
+                    safe_ts = re.sub(r"[^0-9]", "", fecha_fmt) or str(idx_l)
+                    st.download_button(
+                        "📥 Descargar Log (.txt)",
+                        data=log_txt.encode("utf-8"),
+                        file_name=f"wlhopper_log_{safe_ts}_{usr_lbl}.txt",
+                        mime="text/plain",
+                        key=f"dl_audit_log_{idx_l}_{safe_ts}",
+                    )
+        st.stop()
 
     # Vista: Editor de Usuarios y Permisos (Solo Admin)
     if st.session_state.get("show_user_editor", False):
@@ -583,6 +737,7 @@ if check_password():
             mostrar_about()
     
     if "log_history" not in st.session_state: st.session_state.log_history = []
+    if "debug_log" not in st.session_state: st.session_state.debug_log = []
     if "proceso_completo" not in st.session_state: st.session_state.proceso_completo = False
     if "html_excel" not in st.session_state: st.session_state.html_excel = ""
     if "df_excel" not in st.session_state: st.session_state.df_excel = None
@@ -816,7 +971,7 @@ if check_password():
     
             st.session_state.proceso_completo = False
             
-            # Formato de log inicial enriquecido
+            # Formato de log inicial (limpio para usuarios) + log técnico completo (solo admin)
             si_no = lambda b: "Sí" if b else "No"
             st.session_state.log_history = [
                 "--- PARÁMETROS ---",
@@ -826,8 +981,24 @@ if check_password():
                 f"Documentación completa (SharePoint): {si_no(buscar_sp)}",
                 f"Modo vencimiento semestral: {si_no(es_semestral)}",
                 "------------------",
-                "Iniciando conexión con Worklift..."
             ]
+            debug_log = []
+            def log_dbg(msg: str):
+                ts = datetime.now().strftime("%H:%M:%S")
+                debug_log.append(f"[{ts}] {msg}")
+
+            parametros_corrida = {
+                "bajar_cert": bajar_cert,
+                "bajar_inf": bajar_inf,
+                "buscar_lenor": buscar_lenor,
+                "buscar_sp": buscar_sp,
+                "es_semestral": es_semestral,
+                "modo_pruebas": modo_pruebas,
+            }
+            log_dbg(f"=== INICIO CORRIDA WL HOPPER | usuario={st.session_state.get('logged_user', 'desconocido')} ===")
+            log_dbg(f"Parámetros: {json.dumps(parametros_corrida, ensure_ascii=False)}")
+            log_guardado = False
+            res_lista = []
             render_terminal()
             
             # --- AUTO SCROLL A LA TERMINAL ---
@@ -835,112 +1006,155 @@ if check_password():
             
             # Solo se extrae del cuadro de texto final (ya combinado)
             lista = extraer_internos(texto_internos)
+            log_dbg(f"Internos detectados ({len(lista)}): {', '.join(lista) if lista else 'ninguno'}")
             
             if not lista:
                 st.session_state.log_history.append("❌ No se encontraron internos para procesar en el cuadro de texto.")
                 render_terminal()
+                st.session_state.debug_log = debug_log
+                guardar_log_auditoria(st.session_state.get("logged_user", "desconocido"), lista, parametros_corrida, [], debug_log, hubo_error=False)
+                log_guardado = True
             else:
                 with sullapps_spinner("scraping"):
                     pass
-                # --- LANZAMIENTO DEL MOTOR CHROMIUM COMPARTIDO (OPTIMIZACIÓN STREAMLIT CLOUD 1GB RAM) ---
+                # --- LANZAMIENTO DEL MOTOR CHROMIUM COMPARTIDO ---
                 pw_shared = None
                 browser_shared = None
                 try:
                     pw_shared = sync_playwright().start()
                     browser_shared = lanzar_navegador_compartido(pw_shared, headless=True)
+                    log_dbg("Motor Chromium compartido iniciado correctamente.")
                 except Exception as e_pw:
                     st.session_state.log_history.append(f"❌ Error lanzando motor Chromium: {e_pw}")
+                    log_dbg(f"ERROR lanzando Chromium: {e_pw}")
                     render_terminal()
 
-                # --- 1. CONEXIÓN A WORKLIFT (SI HAY CREDENCIALES) ---
+                def conectar_con_reintentos(nombre_srv: str, crear_fn, iniciar_fn, max_intentos: int = 3, pausa_seg: float = 2.0):
+                    """Intenta conectar con un servidor hasta max_intentos veces informando intento X/3."""
+                    st.session_state.log_history.append(f"⏳ Conectando con {nombre_srv} (intento 1/{max_intentos})...")
+                    render_terminal()
+                    ultimo_err = ""
+                    for intento in range(1, max_intentos + 1):
+                        if intento > 1:
+                            st.session_state.log_history[-1] = f"⏳ Reintentando conexión con {nombre_srv} (intento {intento}/{max_intentos})..."
+                            render_terminal()
+                        log_dbg(f"[{nombre_srv}] Intento de conexión {intento}/{max_intentos}...")
+                        inst = None
+                        ok_srv = False
+                        try:
+                            inst = crear_fn()
+                            ok_srv, err_srv = iniciar_fn(inst)
+                            if ok_srv:
+                                st.session_state.log_history[-1] = f"🔐 Conexión exitosa con {nombre_srv}."
+                                log_dbg(f"[{nombre_srv}] Conexión exitosa en intento {intento}/{max_intentos}: {err_srv}")
+                                render_terminal()
+                                return inst, True, ""
+                            ultimo_err = str(err_srv or "Error desconocido")
+                            log_dbg(f"[{nombre_srv}] Falló intento {intento}/{max_intentos}: {ultimo_err}")
+                        except Exception as e_srv:
+                            ultimo_err = str(e_srv)
+                            log_dbg(f"[{nombre_srv}] Excepción en intento {intento}/{max_intentos}: {ultimo_err}")
+                        finally:
+                            if inst is not None and not ok_srv:
+                                try:
+                                    inst.cerrar()
+                                except Exception:
+                                    pass
+                        if intento < max_intentos:
+                            st.session_state.log_history[-1] = f"⚠️ {nombre_srv} no respondió (intento {intento}/{max_intentos}). Reintentando..."
+                            render_terminal()
+                            time.sleep(pausa_seg)
+                    st.session_state.log_history[-1] = f"⚠️ {nombre_srv} no disponible tras {max_intentos} intentos: {ultimo_err}"
+                    log_dbg(f"[{nombre_srv}] Agotados los {max_intentos} intentos. Último error: {ultimo_err}")
+                    render_terminal()
+                    return None, False, ultimo_err
+
+                # --- 1. CONEXIÓN A WORKLIFT (HASTA 3 INTENTOS) ---
                 bot = None
                 exito_wl_login = False
                 error_wl = ""
                 if wl_usr and wl_pass and browser_shared:
-                    st.session_state.log_history.append("⏳ Iniciando sesión en Worklift<span class='loading-dots'></span>")
-                    render_terminal()
-                    bot = WLHopperBot(headless=True)
-                    exito_wl_login, error_wl = bot.iniciar(wl_usr, wl_pass, pw_instance=pw_shared, browser_instance=browser_shared)
-                    if exito_wl_login:
-                        st.session_state.log_history[-1] = "🔐 Login exitoso en Worklift."
-                    else:
-                        st.session_state.log_history[-1] = f"⚠️ Worklift no disponible: {error_wl}"
-                        if bot:
-                            bot.cerrar()
-                            bot = None
+                    bot, exito_wl_login, error_wl = conectar_con_reintentos(
+                        "Worklift",
+                        lambda: WLHopperBot(headless=True),
+                        lambda b: b.iniciar(wl_usr, wl_pass, pw_instance=pw_shared, browser_instance=browser_shared),
+                    )
                 else:
-                    st.session_state.log_history.append("ℹ️ Sin credenciales de Worklift (se omitirá la búsqueda en Worklift).")
-                render_terminal()
+                    log_dbg("[Worklift] Omitido (sin credenciales configuradas).")
 
-                # --- 2. CONEXIÓN PERSISTENTE A BUREAU VERITAS ---
+                # --- 2. CONEXIÓN A BUREAU VERITAS (HASTA 3 INTENTOS) ---
                 bv_bot = None
                 exito_bv_login = False
+                error_bv_login = ""
                 if bv_usr and bv_pw and browser_shared:
-                    st.session_state.log_history.append("Iniciando conexión con BV...")
-                    render_terminal()
-                    bv_bot = BureauVeritasBot(headless=True)
-                    exito_bv_login, error_bv_login = bv_bot.iniciar(bv_usr, bv_pw, pw_instance=pw_shared, browser_instance=browser_shared)
-                    if exito_bv_login:
-                        st.session_state.log_history[-1] = "🔐 Login exitoso en BV (sesión única activa)."
-                    else:
-                        st.session_state.log_history[-1] = f"⚠️ BV no disponible: {error_bv_login}"
-                        bv_bot.cerrar()
-                        bv_bot = None
-                    render_terminal()
+                    bv_bot, exito_bv_login, error_bv_login = conectar_con_reintentos(
+                        "Bureau Veritas",
+                        lambda: BureauVeritasBot(headless=True),
+                        lambda b: b.iniciar(bv_usr, bv_pw, pw_instance=pw_shared, browser_instance=browser_shared),
+                    )
+                else:
+                    log_dbg("[Bureau Veritas] Omitido (sin credenciales configuradas).")
 
-                # --- 3. CONEXIÓN A LENOR (LOGIN Y LIBERACIÓN DE MEMORIA) ---
+                # --- 3. CONEXIÓN A LENOR (HASTA 3 INTENTOS) ---
                 lenor_bot = None
                 exito_lenor_login = False
+                error_lenor_login = ""
                 if buscar_lenor and browser_shared:
-                    st.session_state.log_history.append("Iniciando conexión con Lenor...")
-                    render_terminal()
-                    lenor_bot = LenorBot(headless=True)
-                    exito_lenor_login, error_lenor_login = lenor_bot.iniciar(usuario=lenor_usr, clave=lenor_pw, pw_instance=pw_shared, browser_instance=browser_shared)
-                    if exito_lenor_login:
-                        st.session_state.log_history[-1] = "🔐 Login exitoso en Lenor (sesión REST lista, memoria liberada)."
-                    else:
-                        st.session_state.log_history[-1] = f"⚠️ Falló conexión con Lenor: {error_lenor_login}"
-                        lenor_bot.cerrar()
-                        lenor_bot = None
-                    render_terminal()
+                    lenor_bot, exito_lenor_login, error_lenor_login = conectar_con_reintentos(
+                        "Lenor",
+                        lambda: LenorBot(headless=True),
+                        lambda b: b.iniciar(usuario=lenor_usr, clave=lenor_pw, pw_instance=pw_shared, browser_instance=browser_shared),
+                    )
+                else:
+                    log_dbg("[Lenor] Omitido por parámetros.")
 
-                # --- 4. CONEXIÓN A SHAREPOINT (LOGIN Y LIBERACIÓN DE MEMORIA) ---
+                # --- 4. CONEXIÓN A SHAREPOINT (HASTA 3 INTENTOS) ---
                 sp_bot = None
                 if (buscar_sp or (buscar_lenor and exito_lenor_login)) and browser_shared:
                     is_locked, motivo_bloqueo = security_guard.is_locked()
                     if is_locked:
-                        st.session_state.log_history.append(f"⛔ SharePoint BLOQUEADO por Kill Switch: {motivo_bloqueo}")
-                    else:
-                        st.session_state.log_history.append("Iniciando conexión con SharePoint (BACK OFFICE ARG)...")
+                        st.session_state.log_history.append(f"⛔ SharePoint bloqueado por seguridad: {motivo_bloqueo}")
+                        log_dbg(f"[SharePoint] Bloqueado por Kill Switch: {motivo_bloqueo}")
                         render_terminal()
-                        sp_bot = SharePointHopperBot(security_guard=security_guard, auth_manager=auth_manager, headless=True)
-                        exito_sp, error_sp = sp_bot.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'), pw_instance=pw_shared, browser_instance=browser_shared)
-                        if exito_sp:
-                            st.session_state.log_history[-1] = "🔐 Conexión exitosa a SharePoint (sesión REST lista, memoria liberada)."
-                        else:
-                            st.session_state.log_history[-1] = f"⚠️ SharePoint no disponible: {error_sp}"
-                            sp_bot.cerrar()
-                            sp_bot = None
-                    render_terminal()
+                    else:
+                        sp_bot, exito_sp, error_sp = conectar_con_reintentos(
+                            "SharePoint",
+                            lambda: SharePointHopperBot(security_guard=security_guard, auth_manager=auth_manager, headless=True),
+                            lambda b: b.iniciar(app_user=st.session_state.get('logged_user', 'fcendra'), pw_instance=pw_shared, browser_instance=browser_shared),
+                        )
 
                 # --- 5. VALIDACIÓN DE SERVICIOS DISPONIBLES ---
                 if not exito_wl_login and not exito_bv_login and not exito_lenor_login and not sp_bot:
-                    st.session_state.log_history.append("❌ ERROR: Ninguno de los servicios (Worklift, BV, Lenor, SharePoint) está disponible.")
+                    st.session_state.log_history.append("❌ ERROR: Ninguno de los servicios (Worklift, Bureau Veritas, Lenor, SharePoint) está disponible.")
+                    log_dbg("ERROR CRÍTICO: Ningún servicio disponible.")
                     render_terminal()
                     st.error("No se pudo iniciar sesión en ningún sistema. Verificá las credenciales o el estado de los sitios.")
+                    st.session_state.debug_log = debug_log
+                    guardar_log_auditoria(st.session_state.get("logged_user", "desconocido"), lista, parametros_corrida, [], debug_log, hubo_error=True)
+                    log_guardado = True
                 else:
                     res_lista = []
+                    def get_dt(d_str):
+                        if not d_str or d_str == "-": return datetime.min
+                        try: return datetime.strptime(d_str, "%d/%m/%Y")
+                        except: return datetime.min
+
                     for int_id in lista:
                         st.session_state.log_history.append(f"<br>--- Procesando {int_id} ---")
+                        log_dbg(f"---------- PROCESANDO INTERNO: {int_id} ----------")
                         render_terminal()
-                        
+                        archivos_sp_equipo = set()
+
                         if exito_wl_login and bot:
                             with sullapps_spinner("scraping"):
                                 res = bot.procesar_interno(int_id, ruta_temp, bajar_cert, bajar_inf, es_semestral=es_semestral, prefijo_cert=prefijo_cert)
                             res['id'] = int_id
-                            res['proveedor'] = "Worklift"
+                            res['proveedor'] = "Worklift" if res.get('status') not in ["No se pudo encontrar", "Error"] else "-"
                             res['marca'] = ""
                             res['modelo'] = ""
+                            log_dbg(f"[Worklift] status={res.get('status')} | insp={res.get('insp')} | venc={res.get('venc_real', res.get('venc'))} | files={[os.path.basename(p) for p in res.get('archivos_descargados', [])]}")
+                            for wl_step in res.get("log", []):
+                                log_dbg(f"  [WL] {wl_step}")
 
                             # Extraer marca y modelo del certificado de Worklift si se descargó
                             for f_path in res.get("archivos_descargados", []):
@@ -966,11 +1180,15 @@ if check_password():
                                 "archivos_descargados": [],
                                 "log": []
                             }
+                            log_dbg(f"[Worklift] Omitido para {int_id}: {res['obs_final']}")
                         
-                        # --- AUDITORÍA DOBLE: BUREAU VERITAS ---
+                        # --- AUDITORÍA: BUREAU VERITAS ---
                         if bv_bot and exito_bv_login:
                             with sullapps_spinner("scraping"):
                                 bv_res = bv_bot.procesar_interno(int_id, ruta_temp, bajar_cert=bajar_cert, bajar_inf=bajar_inf, prefijo_cert=prefijo_cert)
+                            log_dbg(f"[Bureau Veritas] status={bv_res.get('status')} | insp={bv_res.get('insp')} | venc={bv_res.get('venc')} | files={[os.path.basename(p) for p in bv_res.get('archivos_descargados', [])]}")
+                            for bv_step in bv_res.get("log", []):
+                                log_dbg(f"  [BV] {bv_step}")
                             
                             if bv_res.get('descargado') or bv_res.get('status') == 'VIGENTE (BV)' or bv_res.get('status') == 'Encontrado en BV':
                                 if not exito_wl_login or res.get('status') in ["No se pudo encontrar", "Error", "No consultado (WL no disp.)", "No consultado"]:
@@ -991,121 +1209,132 @@ if check_password():
                                             d_mm = extraer_marca_modelo_de_certificado(f_path)
                                             if d_mm.get("marca"): res["marca"] = d_mm["marca"]
                                             if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                                    log_dbg(f"[Decisión BV vs WL] Gana Bureau Veritas (sin registro válido en WL).")
                                 else:
-                                    def get_dt(d_str):
-                                        if not d_str or d_str == "-": return datetime.min
-                                        try: return datetime.strptime(d_str, "%d/%m/%Y")
-                                        except: return datetime.min
+                                    wl_v_dt = get_dt(res.get('venc_real') if 'venc_real' in res else res.get('venc'))
+                                    bv_v_dt = get_dt(bv_res.get('venc'))
+                                    wl_i_dt = get_dt(res.get('insp'))
+                                    bv_i_dt = get_dt(bv_res.get('insp'))
                                     
-                                wl_v_dt = get_dt(res.get('venc_real') if 'venc_real' in res else res.get('venc'))
-                                bv_v_dt = get_dt(bv_res.get('venc'))
-                                wl_i_dt = get_dt(res.get('insp'))
-                                bv_i_dt = get_dt(bv_res.get('insp'))
-                                
-                                hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                                bv_tiene_cert_vigente = (bv_v_dt >= hoy)
-                                wl_tiene_cert_vigente = (wl_v_dt >= hoy)
-                                
-                                gana_bv_cert = False
-                                gana_bv_inf = False
-                                
-                                if bv_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
-                                    gana_bv_cert = True
-                                elif not wl_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
-                                    gana_bv_cert = True
+                                    hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                                    bv_tiene_cert_vigente = (bv_v_dt >= hoy)
+                                    wl_tiene_cert_vigente = (wl_v_dt >= hoy)
                                     
-                                if gana_bv_cert:
-                                    gana_bv_inf = True
-                                elif bv_i_dt > wl_i_dt:
-                                    gana_bv_inf = True
+                                    gana_bv_cert = False
+                                    gana_bv_inf = False
+                                    
+                                    if bv_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
+                                        gana_bv_cert = True
+                                    elif not wl_tiene_cert_vigente and (bv_v_dt > wl_v_dt):
+                                        gana_bv_cert = True
                                         
-                                if gana_bv_cert or gana_bv_inf:
-                                    res['proveedor'] = "Bureau Veritas"
-                                    res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
-                                    res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('inf', 'NO')
-                                    
-                                    if gana_bv_inf:
-                                        res['insp'] = bv_res.get('insp', res.get('insp'))
+                                    if gana_bv_cert:
+                                        gana_bv_inf = True
+                                    elif bv_i_dt > wl_i_dt:
+                                        gana_bv_inf = True
+                                            
+                                    if gana_bv_cert or gana_bv_inf:
+                                        log_dbg(f"[Decisión BV vs WL] Gana BV (cert={gana_bv_cert}, inf={gana_bv_inf}) | BV venc={bv_res.get('venc')} vs WL venc={res.get('venc_real', res.get('venc'))}")
+                                        res['proveedor'] = "Bureau Veritas"
+                                        res['cert'] = bv_res.get('cert', 'NO') if gana_bv_cert else res.get('cert', 'NO')
+                                        res['inf'] = bv_res.get('informe', 'NO') if gana_bv_inf else res.get('inf', 'NO')
                                         
-                                    res['venc_real'] = bv_res.get('venc') if gana_bv_cert else res.get('venc_real', res.get('venc'))
-                                    
-                                    if es_semestral:
-                                        i_dt = get_dt(res['insp'])
-                                        if i_dt != datetime.min:
-                                            res['venc'] = (i_dt + timedelta(days=180)).strftime("%d/%m/%Y")
-                                        else:
-                                            res['venc'] = "-"
-                                    else:
-                                        if gana_bv_cert:
-                                            res['venc'] = bv_res.get('venc', res.get('venc'))
-                                    
-                                    # Recalcular días restantes para status
-                                    dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
-                                    if dias_restantes > 30:
-                                        res['status'] = "VIGENTE"
-                                        res['color'] = "VERDE"
-                                        res['obs_final'] = f"{dias_restantes} días de vigencia."
-                                        res['accion_final'] = "-"
-                                    elif 0 <= dias_restantes <= 30:
-                                        res['status'] = "PRÓXIMO A VENCER"
-                                        res['color'] = "AMARILLO"
-                                        res['obs_final'] = f"{dias_restantes} días de vigencia."
-                                        res['accion_final'] = "Coordinar recertificación"
-                                    else:
-                                        res['status'] = "VENCIDO"
-                                        res['color'] = "ROJO"
+                                        if gana_bv_inf:
+                                            res['insp'] = bv_res.get('insp', res.get('insp'))
+                                            
+                                        res['venc_real'] = bv_res.get('venc') if gana_bv_cert else res.get('venc_real', res.get('venc'))
+                                        
                                         if es_semestral:
-                                            res['obs_final'] = f"Último certificado vencido en {res['venc']}." if res['venc'] != "-" else "Último certificado vencido."
+                                            i_dt = get_dt(res['insp'])
+                                            if i_dt != datetime.min:
+                                                res['venc'] = (i_dt + timedelta(days=180)).strftime("%d/%m/%Y")
+                                            else:
+                                                res['venc'] = "-"
                                         else:
-                                            res['obs_final'] = "Último certificado vencido."
-                                        obs_bv = bv_res.get('observaciones', '')
-                                        if obs_bv and gana_bv_inf: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
-                                        res['accion_final'] = "Coordinar recertificación urgente"
-
-                                    # Extraer marca y modelo del certificado BV
-                                    for f_path in bv_res.get("archivos_descargados", []):
-                                        if "Certificado" in f_path:
-                                            d_mm = extraer_marca_modelo_de_certificado(f_path)
-                                            if d_mm.get("marca"): res["marca"] = d_mm["marca"]
-                                            if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                                            if gana_bv_cert:
+                                                res['venc'] = bv_res.get('venc', res.get('venc'))
                                         
-                                    # Eliminar archivos perdedores de WL
-                                    archivos_wl = res.get("archivos_descargados", [])
-                                    for f_path in archivos_wl:
-                                        if os.path.exists(f_path):
+                                        # Recalcular días restantes para status
+                                        dias_restantes = (get_dt(res['venc']) - hoy).days if res['venc'] != "-" else -1
+                                        if dias_restantes > 30:
+                                            res['status'] = "VIGENTE"
+                                            res['color'] = "VERDE"
+                                            res['obs_final'] = f"{dias_restantes} días de vigencia."
+                                            res['accion_final'] = "-"
+                                        elif 0 <= dias_restantes <= 30:
+                                            res['status'] = "PRÓXIMO A VENCER"
+                                            res['color'] = "AMARILLO"
+                                            res['obs_final'] = f"{dias_restantes} días de vigencia."
+                                            res['accion_final'] = "Coordinar recertificación"
+                                        else:
+                                            res['status'] = "VENCIDO"
+                                            res['color'] = "ROJO"
+                                            if es_semestral:
+                                                res['obs_final'] = f"Último certificado vencido en {res['venc']}." if res['venc'] != "-" else "Último certificado vencido."
+                                            else:
+                                                res['obs_final'] = "Último certificado vencido."
+                                            obs_bv = bv_res.get('observaciones', '')
+                                            if obs_bv and gana_bv_inf: res['obs_final'] += f"\nObservaciones BV: {obs_bv}"
+                                            res['accion_final'] = "Coordinar recertificación urgente"
+
+                                        # Extraer marca y modelo del certificado BV
+                                        for f_path in bv_res.get("archivos_descargados", []):
+                                            if "Certificado" in f_path:
+                                                d_mm = extraer_marca_modelo_de_certificado(f_path)
+                                                if d_mm.get("marca"): res["marca"] = d_mm["marca"]
+                                                if d_mm.get("modelo"): res["modelo"] = d_mm["modelo"]
+                                            
+                                        # Eliminar archivos perdedores de WL y reconstruir lista sin huérfanos
+                                        archivos_conservados = []
+                                        for f_path in res.get("archivos_descargados", []):
                                             es_wl_cert = "Certificado" in f_path
                                             es_wl_inf = "Informe" in f_path
                                             if (es_wl_cert and gana_bv_cert) or (es_wl_inf and gana_bv_inf):
-                                                try: os.remove(f_path)
-                                                except: pass
-                                                
-                                    # Eliminar archivos perdedores de BV
-                                    archivos_bv = bv_res.get("archivos_descargados", [])
-                                    for f_path in archivos_bv:
-                                        if os.path.exists(f_path):
+                                                if os.path.exists(f_path):
+                                                    try:
+                                                        os.remove(f_path)
+                                                        log_dbg(f"  [Limpieza] Eliminado archivo perdedor WL: {os.path.basename(f_path)}")
+                                                    except Exception:
+                                                        pass
+                                            else:
+                                                archivos_conservados.append(f_path)
+                                                    
+                                        # Eliminar archivos perdedores de BV y agregar los ganadores a res["archivos_descargados"]
+                                        for f_path in bv_res.get("archivos_descargados", []):
                                             es_bv_cert = "Certificado" in f_path
                                             es_bv_inf = "Informe" in f_path
                                             if (es_bv_cert and not gana_bv_cert) or (es_bv_inf and not gana_bv_inf):
-                                                try: os.remove(f_path)
-                                                except: pass
-                                else:
-                                    # Ganó WL. Borramos los que bajó BV
-                                    archivos_bv = bv_res.get("archivos_descargados", [])
-                                    for f_path in archivos_bv:
-                                        if os.path.exists(f_path):
-                                            try: os.remove(f_path)
-                                            except: pass
+                                                if os.path.exists(f_path):
+                                                    try:
+                                                        os.remove(f_path)
+                                                        log_dbg(f"  [Limpieza] Eliminado archivo perdedor BV: {os.path.basename(f_path)}")
+                                                    except Exception:
+                                                        pass
+                                            else:
+                                                if f_path not in archivos_conservados:
+                                                    archivos_conservados.append(f_path)
+                                        res["archivos_descargados"] = archivos_conservados
+                                    else:
+                                        # Ganó WL. Borramos los que bajó BV
+                                        log_dbg(f"[Decisión BV vs WL] Gana Worklift. Eliminando archivos de BV.")
+                                        for f_path in bv_res.get("archivos_descargados", []):
+                                            if os.path.exists(f_path):
+                                                try:
+                                                    os.remove(f_path)
+                                                    log_dbg(f"  [Limpieza] Eliminado archivo perdedor BV: {os.path.basename(f_path)}")
+                                                except Exception:
+                                                    pass
 
                         # --- BÚSQUEDA EN SHAREPOINT (TÍTULO, CÉDULA, CHASIS, MOTOR, SEGUROS) ---
                         chasis_equipo = ""
                         motor_equipo = ""
+                        sp_res = {}
                         if sp_bot:
-                            st.session_state.log_history.append("Buscando en SharePoint (Título, Cédula, Seguros)...")
-                            render_terminal()
                             with sullapps_spinner("scraping"):
                                 sp_res = sp_bot.procesar_interno(int_id, ruta_temp)
+                            log_dbg(f"[SharePoint] chasis='{sp_res.get('chasis', '')}' | motor='{sp_res.get('motor', '')}' | files={[os.path.basename(p) for p in sp_res.get('archivos_descargados', [])]}")
                             for sp_step in sp_res.get("log", []):
-                                st.session_state.log_history.append(f"  {sp_step}")
+                                log_dbg(f"  [SP] {sp_step}")
                                 
                             chasis_equipo = sp_res.get("chasis", "")
                             motor_equipo = sp_res.get("motor", "")
@@ -1115,15 +1344,13 @@ if check_password():
                                 res["modelo"] = sp_res["modelo"]
 
                             if buscar_sp:
-                                # Usuario habilitado que seleccionó descargar documentación completa
                                 if "archivos_descargados" not in res:
                                     res["archivos_descargados"] = []
                                 for f_sp in sp_res.get("archivos_descargados", []):
+                                    archivos_sp_equipo.add(os.path.abspath(f_sp))
                                     if f_sp not in res["archivos_descargados"]:
                                         res["archivos_descargados"].append(f_sp)
                             else:
-                                # Solo se consultó SharePoint para obtener el Chasis para Lenor;
-                                # Se eliminan los archivos del disco para que el ZIP solo contenga certificados
                                 for f_sp in sp_res.get("archivos_descargados", []):
                                     if os.path.exists(f_sp):
                                         try: os.remove(f_sp)
@@ -1132,19 +1359,16 @@ if check_password():
                         # Si el título no aportó chasis/serie, intentar extraerlo del certificado ya descargado de WL o BV
                         if not chasis_equipo:
                             for f_path in res.get("archivos_descargados", []):
-                                if "Certificado" in f_path:
+                                if "Certificado" in f_path and os.path.exists(f_path):
                                     s_extraida = extraer_serie_de_certificado(f_path)
                                     if s_extraida:
                                         chasis_equipo = s_extraida
-                                        st.session_state.log_history.append(f"  🔢 Número de serie extraído del certificado: '{chasis_equipo}'")
+                                        log_dbg(f"  [Serie] Número de serie extraído de certificado previo: '{chasis_equipo}'")
                                         break
 
-                        # --- AUDITORÍA TRIPLE: LENOR GROUP (ID EQUIPO + FALLBACK SERIE/MOTOR, SIN FUGA DE ESTADO) ---
+                        # --- AUDITORÍA: LENOR GROUP (ID EQUIPO + FALLBACK SERIE/MOTOR, SIN FUGA DE ESTADO) ---
                         lenor_res = {}
                         if lenor_bot and exito_lenor_login and buscar_lenor:
-                            detalle_fallback = f" | fallback serie: {chasis_equipo}" if chasis_equipo else ""
-                            st.session_state.log_history.append(f"Consultando Lenor para {int_id} (por ID de equipo{detalle_fallback})...")
-                            render_terminal()
                             with sullapps_spinner("scraping"):
                                 lenor_res = lenor_bot.buscar_equipo(
                                     interno=int_id,
@@ -1155,8 +1379,9 @@ if check_password():
                                     bajar_inf=bajar_inf,
                                     prefijo_cert=prefijo_cert
                                 )
+                            log_dbg(f"[Lenor] status={lenor_res.get('status')} | insp={lenor_res.get('insp')} | venc={lenor_res.get('venc')} | files={[os.path.basename(p) for p in lenor_res.get('archivos_descargados', [])]}")
                             for lenor_step in lenor_res.get("log", []):
-                                st.session_state.log_history.append(f"  {lenor_step}")
+                                log_dbg(f"  [Lenor] {lenor_step}")
 
                             if lenor_res.get("marca") and not res.get("marca"):
                                 res["marca"] = lenor_res["marca"]
@@ -1164,11 +1389,6 @@ if check_password():
                                 res["modelo"] = lenor_res["modelo"]
 
                             if lenor_res.get("descargado") or "LENOR" in lenor_res.get("status", "") or lenor_res.get("status") == "Encontrado en Lenor":
-                                def get_dt(d_str):
-                                    if not d_str or d_str == "-": return datetime.min
-                                    try: return datetime.strptime(d_str, "%d/%m/%Y")
-                                    except: return datetime.min
-
                                 lenor_v_dt = get_dt(lenor_res.get("venc"))
                                 actual_v_dt = get_dt(res.get("venc_real") if "venc_real" in res else res.get("venc"))
                                 lenor_i_dt = get_dt(lenor_res.get("insp"))
@@ -1181,6 +1401,7 @@ if check_password():
                                     gana_lenor_inf = True
 
                                 if gana_lenor_cert or gana_lenor_inf:
+                                    log_dbg(f"[Decisión Lenor vs Actual] Gana Lenor (cert={gana_lenor_cert}, inf={gana_lenor_inf}) | Lenor venc={lenor_res.get('venc')} vs Actual venc={res.get('venc_real', res.get('venc'))}")
                                     res["proveedor"] = "Lenor"
                                     res["cert"] = lenor_res.get("cert", "NO") if gana_lenor_cert else res.get("cert", "NO")
                                     res["inf"] = lenor_res.get("informe", "NO") if gana_lenor_inf else res.get("inf", "NO")
@@ -1221,23 +1442,70 @@ if check_password():
                                     if lenor_res.get("marca"): res["marca"] = lenor_res["marca"]
                                     if lenor_res.get("modelo"): res["modelo"] = lenor_res["modelo"]
 
-                                    # Eliminar archivos perdedores de Worklift o BV
+                                    # Eliminar archivos perdedores de Worklift o BV (lista + barrido de seguridad en disco)
+                                    lenor_abs = {os.path.abspath(p) for p in lenor_res.get("archivos_descargados", [])}
+                                    archivos_restantes = []
                                     for f_path in res.get("archivos_descargados", []):
-                                        if os.path.exists(f_path) and ("Certificado" in f_path or "Informe" in f_path) and ("Lenor" not in f_path):
-                                            try: os.remove(f_path)
-                                            except: pass
+                                        f_abs = os.path.abspath(f_path)
+                                        es_cert_prev = "Certificado" in os.path.basename(f_path)
+                                        es_inf_prev = "Informe" in os.path.basename(f_path)
+                                        if f_abs not in archivos_sp_equipo and f_abs not in lenor_abs and ((es_cert_prev and gana_lenor_cert) or (es_inf_prev and gana_lenor_inf)):
+                                            if os.path.exists(f_path):
+                                                try:
+                                                    os.remove(f_path)
+                                                    log_dbg(f"  [Limpieza] Eliminado archivo perdedor previo: {os.path.basename(f_path)}")
+                                                except Exception:
+                                                    pass
+                                        else:
+                                            archivos_restantes.append(f_path)
 
-                                    res["archivos_descargados"] = [f for f in res.get("archivos_descargados", []) if not (("Certificado" in f or "Informe" in f) and "Lenor" not in f)]
-                                    res["archivos_descargados"].extend(lenor_res.get("archivos_descargados", []))
+                                    # Barrido de seguridad en ruta_temp para este interno (evita cualquier certificado duplicado)
+                                    int_token = re.sub(r"[^A-Z0-9]", "", str(int_id).upper())
+                                    if os.path.exists(ruta_temp):
+                                        for fname in os.listdir(ruta_temp):
+                                            fpath_disk = os.path.abspath(os.path.join(ruta_temp, fname))
+                                            if fpath_disk in archivos_sp_equipo or fpath_disk in lenor_abs:
+                                                continue
+                                            fname_norm = re.sub(r"[^A-Z0-9]", "", fname.upper())
+                                            es_de_este_interno = fname_norm.startswith(int_token) or f"_{int_token}_" in f"_{fname.upper()}_"
+                                            if not es_de_este_interno:
+                                                continue
+                                            es_cert_d = "Certificado" in fname
+                                            es_inf_d = "Informe" in fname
+                                            if (es_cert_d and gana_lenor_cert) or (es_inf_d and gana_lenor_inf):
+                                                try:
+                                                    os.remove(fpath_disk)
+                                                    log_dbg(f"  [Limpieza Seguridad] Eliminado certificado/informe duplicado en disco: {fname}")
+                                                except Exception:
+                                                    pass
+
+                                    for f_ln in lenor_res.get("archivos_descargados", []):
+                                        if f_ln not in archivos_restantes:
+                                            archivos_restantes.append(f_ln)
+                                    res["archivos_descargados"] = archivos_restantes
                                 else:
                                     # Ganó WL o BV, descartar PDFs de Lenor
+                                    log_dbg(f"[Decisión Lenor vs Actual] Gana {res.get('proveedor', 'previo')}. Eliminando archivos de Lenor.")
                                     for f_path in lenor_res.get("archivos_descargados", []):
                                         if os.path.exists(f_path):
-                                            try: os.remove(f_path)
-                                            except: pass
+                                            try:
+                                                os.remove(f_path)
+                                                log_dbg(f"  [Limpieza] Eliminado archivo perdedor Lenor: {os.path.basename(f_path)}")
+                                            except Exception:
+                                                pass
                                 
-                        # --- IMPRESIÓN DEL LOG REESTRUCTURADO ---
-                        st.session_state.log_history.append(f"Proveedor: {res.get('proveedor', 'Worklift')}")
+                        # --- IMPRESIÓN DEL LOG LIMPIO PARA EL USUARIO ---
+                        if buscar_sp and sp_bot:
+                            n_sp_files = len(sp_res.get("archivos_descargados", []))
+                            if n_sp_files > 0:
+                                st.session_state.log_history.append(f"Documentación SharePoint: {n_sp_files} archivo(s) vinculados")
+                            else:
+                                st.session_state.log_history.append("Documentación SharePoint: sin archivos adicionales")
+
+                        prov_mostrar = res.get('proveedor') or "-"
+                        if res.get('status') in ["No se pudo encontrar", "No consultado", "No consultado (WL no disp.)"]:
+                            prov_mostrar = "-"
+                        st.session_state.log_history.append(f"Proveedor: {prov_mostrar}")
                         if res.get("marca") or res.get("modelo"):
                             st.session_state.log_history.append(f"Equipo: {res.get('marca', '-')} {res.get('modelo', '-')}".strip())
                         
@@ -1249,11 +1517,7 @@ if check_password():
                         st.session_state.log_history.append(f"Último Certificado: {res.get('venc_real', res.get('venc'))}{desc_cert}{status_tag}")
                         
                         # Cálculo de vigencia
-                        def get_dt_local(d_str):
-                            if not d_str or d_str == "-": return datetime.min
-                            try: return datetime.strptime(d_str, "%d/%m/%Y")
-                            except: return datetime.min
-                        v_dt = get_dt_local(res.get('venc'))
+                        v_dt = get_dt(res.get('venc'))
                         hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
                         if v_dt != datetime.min:
                             dias = (v_dt - hoy).days
@@ -1265,16 +1529,18 @@ if check_password():
                             dias_str = "sin registro"
                         st.session_state.log_history.append(f"Días de vigencia: {dias_str}")
                         
-                        if res.get('accion_final') != "-":
-                            st.session_state.log_history.append(f"Comentarios: {res.get('accion_final')}")
+                        accion_val = res.get('accion_final')
+                        if accion_val and str(accion_val).strip() not in ["-", "None", "null"]:
+                            st.session_state.log_history.append(f"Comentarios: {accion_val}")
                             
                         # Conservar advertencias OCR y sugerencias especiales
                         for log_line in res.get('log', []):
                             if any(log_line.strip().startswith(x) for x in ["⚠️", "🤖", "💡"]):
-                                if log_line.strip().startswith("💡 Sugerencia:") and res.get('accion_final') != "-":
+                                if log_line.strip().startswith("💡 Sugerencia:") and accion_val and str(accion_val).strip() not in ["-", "None"]:
                                     continue
                                 st.session_state.log_history.append(f"  {log_line.strip()}")
 
+                        log_dbg(f"[RESUMEN {int_id}] proveedor={prov_mostrar} | status={res.get('status')} | insp={res.get('insp')} | venc={res.get('venc')} | files_finales={[os.path.basename(p) for p in res.get('archivos_descargados', []) if os.path.exists(p)]}")
                         res_lista.append(res)
                         
                         # Inyección de métricas (si no es prueba y no falló por completo)
@@ -1368,9 +1634,30 @@ if check_password():
                     html += "</table>"
                     st.session_state.html_excel = html.replace("\n", "")
                     st.session_state.df_excel = pd.DataFrame(excel_data)
+                    log_dbg(f"=== FIN CORRIDA OK | equipos={len(res_lista)} | archivos_en_zip={len(os.listdir(ruta_temp)) if os.path.exists(ruta_temp) else 0} ===")
+                    st.session_state.debug_log = debug_log
+                    if not log_guardado:
+                        resumen_compacto = [
+                            {"id": r.get("id"), "proveedor": r.get("proveedor"), "status": r.get("status"), "venc": r.get("venc")}
+                            for r in res_lista
+                        ]
+                        guardar_log_auditoria(st.session_state.get("logged_user", "desconocido"), lista, parametros_corrida, resumen_compacto, debug_log, hubo_error=False)
+                        log_guardado = True
                     st.rerun()
         except Exception as ex:
             st.session_state.log_history.append(f"❌ ERROR INESPERADO: {ex}")
+            if 'debug_log' in locals():
+                debug_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR INESPERADO: {ex}\n{traceback.format_exc()}")
+                st.session_state.debug_log = debug_log
+                if not locals().get("log_guardado", False):
+                    guardar_log_auditoria(
+                        st.session_state.get("logged_user", "desconocido"),
+                        locals().get("lista", []),
+                        locals().get("parametros_corrida", {}),
+                        [],
+                        debug_log,
+                        hubo_error=True,
+                    )
             render_terminal()
         finally:
             try:
@@ -1628,6 +1915,19 @@ if check_password():
             </script>""", height=0)
 
     # El bloque de compartir como imagen se movió a dcol1 y se intercala por CSS.
+
+    # --- LOG TÉCNICO COMPLETO DE LA ÚLTIMA CORRIDA (SOLO ADMIN) ---
+    if es_admin_avanzado(st.session_state.get("logged_user", "")) and st.session_state.get("debug_log"):
+        with st.expander("🛠️ Log Técnico Completo de la Última Corrida (Solo Admin)", expanded=False):
+            dbg_txt = "\n".join(st.session_state.debug_log)
+            st.code(dbg_txt, language="text")
+            st.download_button(
+                "📥 Descargar Log Técnico (.txt)",
+                data=dbg_txt.encode("utf-8"),
+                file_name=f"wlhopper_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                key="dl_last_debug_log",
+            )
 
     st.divider()
     st.caption("© 2026 - Desarrollado por Fede García Cendra para Sullair Argentina S.A.")
