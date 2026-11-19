@@ -614,7 +614,7 @@ if check_password():
             c1, c2 = st.columns(2)
             bajar_cert = c1.checkbox("Descargar Certificados", value=True, disabled=is_exec)
             bajar_inf = c2.checkbox("Descargar Informes", value=False, disabled=is_exec)
-            buscar_lenor = st.checkbox("Buscar en Lenor (vía Serie/Chasis de Título)", value=True, disabled=is_exec, help="Consulta el sistema Lenor buscando por los últimos dígitos del serie/chasis y verifica el interno en el PDF.")
+            buscar_lenor = st.checkbox("Buscar en Lenor (ID de Equipo + fallback Serie/Chasis)", value=True, disabled=is_exec, help="Consulta Lenor directamente por ID de equipo (sin depender de SharePoint) y usa Serie/Chasis/Motor como respaldo, validando el interno en el PDF.")
             
             # Control de Acceso por Perfil: Descarga de Documentación Completa
             usuario_logeado = st.session_state.get("logged_user", "")
@@ -1096,8 +1096,9 @@ if check_password():
                                             try: os.remove(f_path)
                                             except: pass
 
-                        # --- BÚSQUEDA EN SHAREPOINT (TÍTULO, CÉDULA, CHASIS, SEGUROS) ---
+                        # --- BÚSQUEDA EN SHAREPOINT (TÍTULO, CÉDULA, CHASIS, MOTOR, SEGUROS) ---
                         chasis_equipo = ""
+                        motor_equipo = ""
                         if sp_bot:
                             st.session_state.log_history.append("Buscando en SharePoint (Título, Cédula, Seguros)...")
                             render_terminal()
@@ -1107,6 +1108,7 @@ if check_password():
                                 st.session_state.log_history.append(f"  {sp_step}")
                                 
                             chasis_equipo = sp_res.get("chasis", "")
+                            motor_equipo = sp_res.get("motor", "")
                             if sp_res.get("marca") and not res.get("marca"):
                                 res["marca"] = sp_res["marca"]
                             if sp_res.get("modelo") and not res.get("modelo"):
@@ -1137,30 +1139,29 @@ if check_password():
                                         st.session_state.log_history.append(f"  🔢 Número de serie extraído del certificado: '{chasis_equipo}'")
                                         break
 
-                        # --- AUDITORÍA TRIPLE: LENOR GROUP (VÍA CHASIS/SERIE) ---
+                        # --- AUDITORÍA TRIPLE: LENOR GROUP (ID EQUIPO + FALLBACK SERIE/MOTOR, SIN FUGA DE ESTADO) ---
+                        lenor_res = {}
                         if lenor_bot and exito_lenor_login and buscar_lenor:
-                            if not chasis_equipo:
-                                st.session_state.log_history.append(f"ℹ️ {int_id}: Sin número de serie/chasis identificado. Se omite búsqueda en Lenor.")
-                                render_terminal()
-                            else:
-                                st.session_state.log_history.append(f"Consultando Lenor para {int_id} (serie/chasis: {chasis_equipo})...")
-                                render_terminal()
-                                with sullapps_spinner("scraping"):
-                                    lenor_res = lenor_bot.buscar_equipo(
-                                        interno=int_id,
-                                        chasis_o_serie=chasis_equipo,
-                                        ruta_base=ruta_temp,
-                                        bajar_cert=bajar_cert,
-                                        bajar_inf=bajar_inf,
-                                        prefijo_cert=prefijo_cert
-                                    )
-                                for lenor_step in lenor_res.get("log", []):
-                                    st.session_state.log_history.append(f"  {lenor_step}")
+                            detalle_fallback = f" | fallback serie: {chasis_equipo}" if chasis_equipo else ""
+                            st.session_state.log_history.append(f"Consultando Lenor para {int_id} (por ID de equipo{detalle_fallback})...")
+                            render_terminal()
+                            with sullapps_spinner("scraping"):
+                                lenor_res = lenor_bot.buscar_equipo(
+                                    interno=int_id,
+                                    chasis_o_serie=chasis_equipo,
+                                    motor=motor_equipo,
+                                    ruta_base=ruta_temp,
+                                    bajar_cert=bajar_cert,
+                                    bajar_inf=bajar_inf,
+                                    prefijo_cert=prefijo_cert
+                                )
+                            for lenor_step in lenor_res.get("log", []):
+                                st.session_state.log_history.append(f"  {lenor_step}")
 
-                                if lenor_res.get("marca") and not res.get("marca"):
-                                    res["marca"] = lenor_res["marca"]
-                                if lenor_res.get("modelo") and not res.get("modelo"):
-                                    res["modelo"] = lenor_res["modelo"]
+                            if lenor_res.get("marca") and not res.get("marca"):
+                                res["marca"] = lenor_res["marca"]
+                            if lenor_res.get("modelo") and not res.get("modelo"):
+                                res["modelo"] = lenor_res["modelo"]
 
                             if lenor_res.get("descargado") or "LENOR" in lenor_res.get("status", "") or lenor_res.get("status") == "Encontrado en Lenor":
                                 def get_dt(d_str):

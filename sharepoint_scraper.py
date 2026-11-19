@@ -276,6 +276,7 @@ class SharePointHopperBot:
             "seguro_poliza": False,
             "libre_deuda": False,
             "chasis": "",
+            "motor": "",
             "marca": "",
             "modelo": "",
             "archivos_descargados": [],
@@ -307,13 +308,14 @@ class SharePointHopperBot:
                         res["archivos_descargados"].append(dest)
                     log_pasos.append(f"📄 Título + Cédula encontrado: {name}")
                     
-                    # Extraer Chasis, Marca y Modelo directamente del PDF
+                    # Extraer Chasis, Motor, Marca y Modelo directamente del PDF
                     datos_tit = extraer_datos_titulo_o_cedula(dest)
                     res["chasis"] = datos_tit.get("chasis", "")
+                    res["motor"] = datos_tit.get("motor", "")
                     res["marca"] = datos_tit.get("marca", "")
                     res["modelo"] = datos_tit.get("modelo", "")
-                    if res["chasis"]:
-                        log_pasos.append(f"🔢 Datos del Título: Chasis={res['chasis']} | Marca={res['marca']} | Modelo={res['modelo']}")
+                    if res["chasis"] or res["motor"]:
+                        log_pasos.append(f"🔢 Datos del Título: Chasis={res['chasis'] or '-'} | Motor={res['motor'] or '-'} | Marca={res['marca']} | Modelo={res['modelo']}")
                     
                     encontrado_titulo = True
                     break

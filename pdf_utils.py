@@ -32,6 +32,21 @@ MARCAS_CONOCIDAS = {
     "SKYJACK", "DINGLI", "XCMG", "SANY", "LIUGONG", "LONKING", "KALMAR"
 }
 
+def extraer_texto_pdf_bytes(pdf_bytes: bytes) -> str:
+    """Extrae texto nativo de un PDF en memoria (bytes) sin escribir archivos temporales."""
+    if not pdf_bytes:
+        return ""
+    texto = ""
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        for page in doc:
+            texto += page.get_text("text") + "\n"
+        doc.close()
+    except Exception as e:
+        print(f"Error extrayendo texto de PDF en memoria: {e}")
+    return texto
+
+
 def extraer_texto_completo_pdf(ruta_pdf):
     """Extrae texto nativo o mediante OCR si el PDF es escaneado."""
     texto = ""
@@ -94,7 +109,7 @@ def extraer_datos_titulo_o_cedula(ruta_pdf):
     de Título de la Maquinaria, Cédula MAVI o Factura de Compra.
     Diferencia estrictamente 'Mca. Chasis' (Marca) de 'Nro. Chasis' (Número real).
     """
-    datos = {"chasis": "", "marca": "", "modelo": "", "tipo": ""}
+    datos = {"chasis": "", "motor": "", "marca": "", "modelo": "", "tipo": ""}
     texto = extraer_texto_completo_pdf(ruta_pdf)
     if not texto.strip():
         return datos
@@ -127,6 +142,20 @@ def extraer_datos_titulo_o_cedula(ruta_pdf):
                 datos["chasis"] = val
                 break
         if datos["chasis"]:
+            break
+
+    # 1b. Extracción de Número de Motor (fallback útil cuando Lenor indexó Motor en lugar de Chasis)
+    patrones_motor = [
+        r'(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)\s*(?:de\s*)?Motor\s*[:\s]+([A-Za-z0-9\-/]+)',
+        r'(?<!Mca\.\s)(?<!Mca\.)(?<!Mca\s)(?<!Marca\s)\bMotor\s*(?:Nro\.?|N[°ºo]\.?|N[uú]m(?:ero)?\.?)?\s*[:\s]+([A-Za-z0-9\-/]+)',
+    ]
+    for pat_m in patrones_motor:
+        for mm in re.finditer(pat_m, texto, re.IGNORECASE):
+            val_mot = mm.group(1).strip(" ,;.:-_")
+            if len(val_mot) >= 4 and any(c.isdigit() for c in val_mot) and val_mot.upper() not in MARCAS_CONOCIDAS:
+                datos["motor"] = val_mot
+                break
+        if datos["motor"]:
             break
 
     # 2. Extracción de Marca
